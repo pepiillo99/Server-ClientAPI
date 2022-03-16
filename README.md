@@ -31,8 +31,8 @@ public class HelloWorldPacket extends Packet {
 And you need register this packet on instance...
 
 ```java
-		ServerClientAPI scAPI = new ServerClientAPI();
-		scAPI.addPacket(new HelloWorldPacket());
+ServerClientAPI scAPI = new ServerClientAPI();
+scAPI.addPacket(new HelloWorldPacket());
 ```
 
 And the most important, you need run the server to send and receibe the information packets...
