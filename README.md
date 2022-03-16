@@ -40,19 +40,19 @@ And the most important, you need run the server to send and receibe the informat
 ```java
 List<ClientServer> clients = new ArrayList<ClientServer>; // its ideally you use HashMap ;)
 ServerConnection server = new ServerConnection(777) {
-			@Override
-			public void onStart() {
-				
-			}
-			@Override
-			public void onConnect(AsynchronousSocketChannel clientConnection) {
-          clients.add(new ClientServer(clientConnection, scAPI)); // there action to create the client instance...
-			}
-			@Override
-			public void onStop() {
-				
-			}			
-		};
+	@Override
+	public void onStart() {
+		
+	}
+	@Override
+	public void onConnect(AsynchronousSocketChannel clientConnection) {
+		clients.add(new ClientServer(clientConnection, scAPI)); // there action to create the client instance...
+	}
+	@Override
+	public void onStop() {
+		
+	}			
+};
     // if you want connect to server use clients.add(new ClientServer("localhost", 777, scAPI));
 ```
 
