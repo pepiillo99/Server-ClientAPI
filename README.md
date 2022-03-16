@@ -53,7 +53,7 @@ ServerConnection server = new ServerConnection(777) {
 		
 	}			
 };
-    // if you want connect to server use clients.add(new ClientServer("localhost", 777, scAPI));
+// if you want connect to server use clients.add(new ClientServer("localhost", 777, scAPI));
 ```
 
 Previously, as you saw, we used a client object... We will have to create this because it is an abstract class and we will have to define its methods inside...
