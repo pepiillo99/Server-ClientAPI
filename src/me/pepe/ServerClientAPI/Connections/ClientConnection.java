@@ -41,15 +41,15 @@ public abstract class ClientConnection {
 	private ByteBuffer incompletePacket;
 	private String ipC = "";
 	public boolean debugMode = false;
-	private long lastTryPacketSended = 0;
-	private long lastPacketSended = 0;
+	private long lastTryPacketSent = 0;
+	private long lastPacketSent = 0;
 	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizó los bytes por segundo
-	// b/s receibed
-	private int bytesPerSecondReceibed = 0;
-	private int newbytesPerSecondReceibed = 0;	
-	// b/s sended
-	private int bytesPerSecondSended = 0;
-	private int newbytesPerSecondSended = 0;
+	// b/s Received
+	private int bytesPerSecondReceived = 0;
+	private int newbytesPerSecondReceived = 0;	
+	// b/s sent
+	private int bytesPerSecondSent = 0;
+	private int newbytesPerSecondSent = 0;
 	public boolean byteDebug = false;
 	private Packet sendingPacket = null;
 	private boolean reconnecting = false;
@@ -57,8 +57,8 @@ public abstract class ClientConnection {
 	private long timeOut = 5000;
 	private long lastPinged = 0;
 	private Thread timeOutThread;
-	private int packetSended = 0;
-	private int packetReceibed = 0;
+	private int packetsent = 0;
+	private int packetReceived = 0;
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager) {
 		this.connection = connection;
 		this.packetManager = packetManager;
@@ -140,6 +140,9 @@ public abstract class ClientConnection {
 		};
 		timeOutThread.start();
 	}
+	public ClientConnectionType getClientConnectionType() {
+		return clientConnectionType;
+	}
 	public abstract void onConnect();
 	public abstract void onFailedConnect();
 	public abstract void onRecibe(Packet packet);
@@ -148,26 +151,26 @@ public abstract class ClientConnection {
 	public abstract void onDisconnect();
 	public void informClient() {
 		System.out.println("Hay " + this.pendentingSendPacket.size() + " packets pendientes para enviar");
-		System.out.println("Ultimo packet enviado hace " + (System.currentTimeMillis() - lastPacketSended) + " ms");
-		System.out.println("Se intento enviar un packet hace " + "(" + lastTryPacketSended + " - " + System.currentTimeMillis() + ")" + ((lastTryPacketSended + 2500) - System.currentTimeMillis()) + "ms IsPacketTryDown?: " + ((lastTryPacketSended + 2500) - System.currentTimeMillis() >= 0));
-		System.out.println("UP: " + getBytePerSecondSended() + "bs/s DOWN: " + getBytePerSecondReceibed() + "bs/s");
+		System.out.println("Ultimo packet enviado hace " + (System.currentTimeMillis() - lastPacketSent) + " ms");
+		System.out.println("Se intento enviar un packet hace " + "(" + lastTryPacketSent + " - " + System.currentTimeMillis() + ")" + ((lastTryPacketSent + 2500) - System.currentTimeMillis()) + "ms IsPacketTryDown?: " + ((lastTryPacketSent + 2500) - System.currentTimeMillis() >= 0));
+		System.out.println("UP: " + getBytePerSecondSent() + "bs/s DOWN: " + getBytePerSecondReceived() + "bs/s");
 		if (sendingPacket != null) {
 			System.out.println("CurrentSending: " + sendingPacket.getClass() + " hace  " + (sendingPacket.getCurrent() - System.currentTimeMillis()) + "ms");
 		}
 	}
 	public void onErrorSend() {}
-	public int getBytePerSecondSended() {
-		return bytesPerSecondSended;
+	public int getBytePerSecondSent() {
+		return bytesPerSecondSent;
 	}
-	public int getBytePerSecondReceibed() {
-		return bytesPerSecondReceibed;
+	public int getBytePerSecondReceived() {
+		return bytesPerSecondReceived;
 	}
 	private void checkNeedUpdateBytesPerSecond() {
 		if ((lastBytePerSecondUpdate + 1000) - System.currentTimeMillis() <= 0) {
-			bytesPerSecondReceibed = newbytesPerSecondReceibed;
-			newbytesPerSecondReceibed = 0;
-			bytesPerSecondSended = newbytesPerSecondSended;
-			newbytesPerSecondSended = 0;
+			bytesPerSecondReceived = newbytesPerSecondReceived;
+			newbytesPerSecondReceived = 0;
+			bytesPerSecondSent = newbytesPerSecondSent;
+			newbytesPerSecondSent = 0;
 			lastBytePerSecondUpdate = System.currentTimeMillis();
 		} else {
 			// no necesita actualizarlo
@@ -184,7 +187,7 @@ public abstract class ClientConnection {
 		} else if (pendentingSendPacket.isEmpty()) {
 			pendentingSendPacket.add(packet);
 			try {
-				lastTryPacketSended = System.currentTimeMillis();
+				lastTryPacketSent = System.currentTimeMillis();
 				if (byteDebug) {
 					log("send normal");
 				}
@@ -198,7 +201,7 @@ public abstract class ClientConnection {
 			}
 		} else {
 			pendentingSendPacket.add(packet);
-			if (sendingPacket == null && lastTryPacketSended == 0) {
+			if (sendingPacket == null && lastTryPacketSent == 0) {
 				System.out.println("Se intentará forzar el envio del packet...");
 				try {
 					send(packet);
@@ -207,10 +210,10 @@ public abstract class ClientConnection {
 				}
 				System.out.println("Packet enviado de forma forzada...");
 			} else {
-				if ((lastTryPacketSended + 2500) - System.currentTimeMillis() <= 0) {
+				if ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0) {
 					onErrorSend();
 					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. ¿El proceso de send esta parado? forzando el envio del packet pendiente");
-					System.out.println(lastTryPacketSended + " - " + System.currentTimeMillis() + " - " + ((lastTryPacketSended + 2500) - System.currentTimeMillis())  + " - " + ((lastTryPacketSended + 2500) - System.currentTimeMillis() <= 0));
+					System.out.println(lastTryPacketSent + " - " + System.currentTimeMillis() + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis())  + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0));
 					try {
 						if (byteDebug) {
 							log("send by error?");
@@ -221,7 +224,7 @@ public abstract class ClientConnection {
 					}
 				} else {
 					if (debugMode) {
-						System.out.println("Hay " + pendentingSendPacket.size() + " packets pendientes, ya hay uno enviandose? " + sendingPacket + " " + lastTryPacketSended);
+						System.out.println("Hay " + pendentingSendPacket.size() + " packets pendientes, ya hay uno enviandose? " + sendingPacket + " " + lastTryPacketSent);
 					}
 				}
 			}
@@ -280,38 +283,38 @@ public abstract class ClientConnection {
 							@Override
 							public void completed(Integer result, AsynchronousSocketChannel attachment) {
 				                checkNeedUpdateBytesPerSecond();
-				                newbytesPerSecondSended = newbytesPerSecondSended + 8;
-								//System.out.println(bs + " sended " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
+				                newbytesPerSecondSent = newbytesPerSecondSent + 8;
+								//System.out.println(bs + " sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
 								ByteBuffer bufPacket = ByteBuffer.allocate(output.size());
 								bufPacket.put(output.toByteArray());
 								bufPacket.flip();
 				                if (byteDebug) {
-					                log("size sended " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
+					                log("size sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
 									log("intentando enviar el packet completo");
 								}
 								connection.write(bufPacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 									@Override
 									public void completed(Integer result, AsynchronousSocketChannel attachment) {
-										lastPacketSended = System.currentTimeMillis();
+										lastPacketSent = System.currentTimeMillis();
 						                if (byteDebug) {
 							                List<Byte> bs = new ArrayList<Byte>();
 							                for (byte b : bufPacket.array()) {
 							                	bs.add(b);
 							                }
-						                	log("Packet sended (" + bs.size() + ") - " + bs + result);
+						                	log("Packet sent (" + bs.size() + ") - " + bs + result);
 						                }
 						                checkNeedUpdateBytesPerSecond();
-						                newbytesPerSecondSended = newbytesPerSecondSended + bufPacket.array().length;
-						                packetSended++;
+						                newbytesPerSecondSent = newbytesPerSecondSent + bufPacket.array().length;
+						                packetsent++;
 										pendentingSendPacket.remove(packet);
-										if (packet.hasSendedCallback()) {
-											packet.getSendedCallback().onSend(System.currentTimeMillis() - packet.getCurrent());
+										if (packet.hasSentCallback()) {
+											packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
 										}
 										if (debugMode) {
-											System.out.println("Packet enviado en " + (System.currentTimeMillis() - lastTryPacketSended) + " ms");
+											System.out.println("Packet enviado en " + (System.currentTimeMillis() - lastTryPacketSent) + " ms");
 											System.out.println("Comprobando si tiene packets pendientes que enviar...");
 										}
-										lastTryPacketSended = 0;
+										lastTryPacketSent = 0;
 										if (!pendentingSendPacket.isEmpty()) {
 											Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
 											if (debugMode) {
@@ -319,7 +322,7 @@ public abstract class ClientConnection {
 											}
 											if (nextPacket != null) {
 												try {
-													lastTryPacketSended = System.currentTimeMillis();
+													lastTryPacketSent = System.currentTimeMillis();
 													if (byteDebug) {
 														log("send by nextPacket");
 													}
@@ -389,9 +392,9 @@ public abstract class ClientConnection {
 	                	bs.add(b);
 	                }
 					 */
-					//System.out.println(bs + " receibed " + result);
+					//System.out.println(bs + " Received " + result);
 	                checkNeedUpdateBytesPerSecond();
-	                newbytesPerSecondReceibed = newbytesPerSecondReceibed + 8; // porque al recibir el numero de packet, el numero pesa 8 bytes
+	                newbytesPerSecondReceived = newbytesPerSecondReceived + 8; // porque al recibir el numero de packet, el numero pesa 8 bytes
 					try {
 						nextPacketSize = PacketUtilities.getInteger(new ByteArrayInputStream(bufSize.array()));
 				        ByteBuffer bufPacket = ByteBuffer.allocate(nextPacketSize);
@@ -402,8 +405,8 @@ public abstract class ClientConnection {
 								//System.out.println("test");
 								//bufPacket.flip();
 				                checkNeedUpdateBytesPerSecond();
-				                newbytesPerSecondReceibed = newbytesPerSecondReceibed + bufPacket.position();
-								//System.out.println(bs + " receibed fully " + bufPacket.position() + " " + bufPacket.limit() + " " + bufPacket.capacity() + " " + nextPacketSize);
+				                newbytesPerSecondReceived = newbytesPerSecondReceived + bufPacket.position();
+								//System.out.println(bs + " Received fully " + bufPacket.position() + " " + bufPacket.limit() + " " + bufPacket.capacity() + " " + nextPacketSize);
 								if (bufPacket.position() < nextPacketSize) {
 									incompletePacket = bufPacket;
 									readIncompletePacket();
@@ -440,7 +443,7 @@ public abstract class ClientConnection {
 				//System.out.println((incompletePacket.position()) + " total de " + nextPacketSize);
 				int readed = incompletePacket.position() - prePosition;
                 checkNeedUpdateBytesPerSecond();
-                newbytesPerSecondReceibed = newbytesPerSecondReceibed + readed;
+                newbytesPerSecondReceived = newbytesPerSecondReceived + readed;
 				if (incompletePacket.position() < nextPacketSize) {
 					readIncompletePacket();
 				} else {
@@ -466,7 +469,7 @@ public abstract class ClientConnection {
 				for (byte a : bufPacket.array()) {
 					testList.add(a);
 				}
-				log("Packet receibed (" + testList.size() + ") " + testList);	
+				log("Packet Received (" + testList.size() + ") " + testList);	
 			}
 			packetID = PacketUtilities.getInteger(input);
 	        int cliendID = PacketUtilities.getInteger(input);
@@ -483,7 +486,7 @@ public abstract class ClientConnection {
 				System.err.println(exception);
 			}
 	        if (packet != null) {
-                packetReceibed++;
+                packetReceived++;
 	        	packet.setCurrent(current);
 	    		downPing = System.currentTimeMillis() - packet.getCurrent();
 	    		if (packet.getPacketToClientType() == 0) {
@@ -510,7 +513,7 @@ public abstract class ClientConnection {
 	    				if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
 	    					sendPacket(packet);
 	    				} else {
-	    					//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondSended + " down-" + bytesPerSecondReceibed);
+	    					//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
 	    				}
 	    			}
 	    		} else {
@@ -582,10 +585,10 @@ public abstract class ClientConnection {
 			throw new IllegalArgumentException("The time of time out need >= 2000");
 		}
 	}
-	public int getPacketSended() {
-		return packetSended;
+	public int getPacketSent() {
+		return packetsent;
 	}
-	public int getPacketReceibed() {
-		return packetReceibed;
+	public int getPacketReceived() {
+		return packetReceived;
 	}
 }
