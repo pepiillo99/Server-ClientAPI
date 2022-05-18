@@ -353,7 +353,7 @@ public abstract class ClientConnection {
 										if (exc instanceof AsynchronousCloseException) {
 											disconnect();
 										}
-										System.out.println("ERROR AL ENVIAR EL PACKET ENTERO");
+										System.out.println("ERROR AL ENVIAR EL PACKET ENTERO " + packet.getClass().getName());
 									}				
 								});
 							}
