@@ -4,3 +4,5 @@
 *.prefs
 .project
 pom.xml
+target/classes/META-INF/MANIFEST.MF
+target/classes/META-INF/maven/Server-ClientAPI/Server-ClientAPI/pom.properties

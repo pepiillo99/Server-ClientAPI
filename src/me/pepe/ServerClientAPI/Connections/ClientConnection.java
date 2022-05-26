@@ -13,6 +13,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.CompletionHandler;
+import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.WritePendingException;
 import java.util.ArrayList;
 import java.util.List;
@@ -116,7 +117,7 @@ public abstract class ClientConnection {
 			}
 			@Override
 			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-				System.out.println("Error al conectar con el servidor");
+				System.out.println("Error al conectar con el servidor " + ip + ":" + port);
 				onFailedConnect();
 			}
 		});
@@ -130,7 +131,14 @@ public abstract class ClientConnection {
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
-					sendPacket(new PacketGlobalPing());
+					if (isConnected()) {
+						try {
+							sendPacket(new PacketGlobalPing());
+						} catch (NotYetConnectedException ex) {
+							onFailedConnect();
+							disconnect();
+						}
+					}
 					if (isConnected() && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
 						System.out.println("Server connection time out! " + reconnectKey);
 						disconnect();
