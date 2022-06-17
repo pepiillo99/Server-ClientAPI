@@ -1,23 +1,45 @@
 package me.pepe.ServerClientAPI.Utils;
 
+import java.math.BigDecimal;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.text.DecimalFormat;
+import java.util.Enumeration;
 import java.util.Random;
 
 public class Utils {
 	public static Random random = new Random();
-	public static String[] getLocalIP() {
-		try {
-			String local = InetAddress.getLocalHost().getHostAddress();
-			return local.split("\\.");
-		} catch (UnknownHostException e) {
-			e.printStackTrace();
-		}
-		return null;
+	public static DecimalFormat decimalFormat = new DecimalFormat("#,###.##");
+	public static String getLocalIPString() {
+		String[] ip = getLocalIP();
+		return ip[0] + "." + ip[1] + "." + ip[2] + "." + ip[3];
 	}
+	public static String[] getLocalIP() {
+        String ip = "";
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                if (iface.isLoopback() || !iface.isUp() || iface.isVirtual() || iface.getDisplayName().equals("VirtualBox Host-Only Ethernet Adapter")) {
+                	continue;
+                }
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (addr instanceof Inet4Address) {
+                    	System.out.println(addr.getHostAddress() +  " - " + iface.getDisplayName());
+                        ip = addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            throw new RuntimeException(e);
+        }
+        return ip.split("\\.");
+    }
 	public static String getMaskString() {
 		int[] mask = getMask();
 		return mask[0] + "." + mask[1] + "." + mask[2] + "." + mask[3];
@@ -36,5 +58,47 @@ public class Utils {
 			System.out.println("Error: "+e);
 		}
 		return null;
+	}
+	public static String getBytesScaled(long bytes) {
+		if (bytes / 1000000000000L != 0) {
+			return decimalFormat.format(divideWithDecimals(bytes, 1000000000000L)) + "TB";
+		}
+		if (bytes / 1000000000 != 0) {
+			return decimalFormat.format(divideWithDecimals(bytes, 1000000000L)) + "GB";
+		}
+		if (bytes / 1000000 != 0) {
+			return decimalFormat.format(divideWithDecimals(bytes, 1000000L)) + "MB";
+		}
+		if (bytes / 1000 != 0) {
+			return decimalFormat.format(divideWithDecimals(bytes, 1000L)) + "KB";
+		}
+		return bytes + "B";
+	}
+	public static long getFromSacledBytes(String scaled) { // si viene de getBytesScaled es probable que haya perdidas de información porque este redondea...
+		if (scaled.endsWith("TB") || scaled.endsWith("GB") || scaled.endsWith("MB") || scaled.endsWith("KB")) {
+			try {
+				long bytes = Long.valueOf(scaled.substring(0,  scaled.length() - 2));
+				if (scaled.endsWith("TB")) {
+					bytes *= 1000000000000L;
+				} else if (scaled.endsWith("GB")) {
+					bytes *= 1000000000;
+				} else if (scaled.endsWith("MB")) {
+					bytes *= 1000000;
+				} else if (scaled.endsWith("KB")) {
+					bytes *= 1000;
+				}
+				return bytes;
+			} catch (NumberFormatException ex) {}
+		} else if (scaled.endsWith("B")) {
+			try {
+				return Long.valueOf(scaled.substring(0,  scaled.length() - 1));
+			} catch (NumberFormatException ex) {}
+		}
+		return -1;
+	}
+	private static BigDecimal divideWithDecimals(long a, long b) {
+		BigDecimal bdec = new BigDecimal(a);
+		BigDecimal bdecRes = bdec.divide(new BigDecimal(b));
+		return bdecRes;
 	}
 }

@@ -1,17 +1,14 @@
 package me.pepe.ServerClientAPI.Utils;
 
 import java.io.IOException;
-
-import me.pepe.ServerClientAPI.Packet;
-import me.pepe.ServerClientAPI.ServerClientAPI;
-import me.pepe.ServerClientAPI.Connections.ClientConnection;
+import java.net.InetSocketAddress;
+import java.nio.channels.AsynchronousSocketChannel;
+import java.nio.channels.CompletionHandler;
 
 public class CalculatorRedMaskOpenned extends Thread {
-	private ServerClientAPI svAPI;
 	private int port;
 	private RedMaskFindedCallback<String> callback;
-	public CalculatorRedMaskOpenned(ServerClientAPI svAPI, RedMaskFindedCallback<String> callback, int port) {
-		this.svAPI = svAPI;
+	public CalculatorRedMaskOpenned(RedMaskFindedCallback<String> callback, int port) {
 		this.callback = callback;
 		this.port = port;
 		start();
@@ -53,24 +50,17 @@ public class CalculatorRedMaskOpenned extends Thread {
 					}
 					try {
 						String ipSoll = ipSol;
-						ClientConnection conn = new ClientConnection(ipSol, port, svAPI) {
+						AsynchronousSocketChannel connection = AsynchronousSocketChannel.open();
+						connection.connect(new InetSocketAddress(ipSoll, port), connection, new CompletionHandler<Void, AsynchronousSocketChannel>() {
 							@Override
-							public void onConnect() {
+							public void completed(Void result, AsynchronousSocketChannel attachment) {
 								callback.done(ipSoll, null);
-								disconnect();
 							}
 							@Override
-							public void onFailedConnect() {}
-							@Override
-							public void onRecibe(Packet packet) {}
-							@Override
-							public void onDropCanReconnect() {}
-							@Override
-							public void onReconnect() {}
-							@Override
-							public void onDisconnect() {}						
-						};
-						conn.setTimeOutTime(2000);
+							public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
+								System.out.println("Error al conectar con el servidor " + ipSoll + ":" + port);
+							}
+						});
 					} catch (IOException e) {
 						e.printStackTrace();
 					}

@@ -14,6 +14,7 @@ import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.CompletionHandler;
 import java.nio.channels.NotYetConnectedException;
+import java.nio.channels.UnresolvedAddressException;
 import java.nio.channels.WritePendingException;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,22 +36,25 @@ public abstract class ClientConnection {
 	private AsynchronousSocketChannel connection;
 	private ClientConnectionType clientConnectionType = null;
 	private List<Packet> pendentingSendPacket = new ArrayList<Packet>();
-	private int maxPacketSize = 40000;
+	private long maxPacketSize = 40000L;
 	private int nextPacketSize;
 	private long downPing = 0;
 	private boolean reading = false;
 	private ByteBuffer incompletePacket;
 	private String ipC = "";
 	public boolean debugMode = false;
+	private boolean connectionCompleted = false; // first connection is completed?
 	private long lastTryPacketSent = 0;
 	private long lastPacketSent = 0;
-	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizó los bytes por segundo
+	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizï¿½ los bytes por segundo
 	// b/s Received
 	private int bytesPerSecondReceived = 0;
 	private int newbytesPerSecondReceived = 0;	
 	// b/s sent
 	private int bytesPerSecondSent = 0;
 	private int newbytesPerSecondSent = 0;
+	private long bytesSent = 0;
+	private long bytesReceived = 0;
 	public boolean byteDebug = false;
 	private Packet sendingPacket = null;
 	private boolean reconnecting = false;
@@ -104,24 +108,13 @@ public abstract class ClientConnection {
 			}
 		};
 		timeOutThread.start();
+		connectionCompleted = true;
 		onConnect();
 	}
 	public ClientConnection(String ip, int port, ServerClientAPI packetManager) throws IOException {
 		this.packetManager = packetManager;
 		connection = AsynchronousSocketChannel.open();
 		this.clientConnectionType = ClientConnectionType.CLIENT_TO_SERVER;
-		connection.connect(new InetSocketAddress(ip, port), connection, new CompletionHandler<Void, AsynchronousSocketChannel>() {
-			@Override
-			public void completed(Void result, AsynchronousSocketChannel attachment) {	
-				onConnect();
-			}
-			@Override
-			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-				System.out.println("Error al conectar con el servidor " + ip + ":" + port);
-				onFailedConnect();
-			}
-		});
-		lastPinged = System.currentTimeMillis();
 		timeOutThread = new Thread() {
 			@Override
 			public void run() {
@@ -146,7 +139,24 @@ public abstract class ClientConnection {
 				}
 			}
 		};
-		timeOutThread.start();
+		try {
+			connection.connect(new InetSocketAddress(ip, port), connection, new CompletionHandler<Void, AsynchronousSocketChannel>() {
+				@Override
+				public void completed(Void result, AsynchronousSocketChannel attachment) {	
+					connectionCompleted = true;
+					lastPinged = System.currentTimeMillis();
+					timeOutThread.start();
+					onConnect();
+				}
+				@Override
+				public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
+					System.out.println("Error al conectar con el servidor " + ip + ":" + port);
+					onFailedConnect();
+				}
+			});
+		} catch (UnresolvedAddressException ex) {
+			onFailedConnect();
+		}
 	}
 	public ClientConnectionType getClientConnectionType() {
 		return clientConnectionType;
@@ -172,6 +182,18 @@ public abstract class ClientConnection {
 	}
 	public int getBytePerSecondReceived() {
 		return bytesPerSecondReceived;
+	}
+	public long getBytesSent() {
+		return bytesSent;
+	}
+	public long getBytesReceived() {
+		return bytesReceived;
+	}
+	public long getMaxPacketSize() {
+		return maxPacketSize;
+	}
+	public void setMaxPacketSize(long maxPacketSize) {
+		this.maxPacketSize = maxPacketSize;
 	}
 	private void checkNeedUpdateBytesPerSecond() {
 		if ((lastBytePerSecondUpdate + 1000) - System.currentTimeMillis() <= 0) {
@@ -210,17 +232,17 @@ public abstract class ClientConnection {
 		} else {
 			pendentingSendPacket.add(packet);
 			if (sendingPacket == null && lastTryPacketSent == 0) {
-				System.out.println("Se intentará forzar el envio del packet...");
+				System.out.println("Se intentarï¿½ forzar el envio del packet...");
 				try {
 					send(packet);
 				} catch (WritePacketException | WritePendingException e) {
-					System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente esté escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
+					System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente estï¿½ escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
 				}
 				System.out.println("Packet enviado de forma forzada...");
 			} else {
 				if ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0) {
 					onErrorSend();
-					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. ¿El proceso de send esta parado? forzando el envio del packet pendiente");
+					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. ï¿½El proceso de send esta parado? forzando el envio del packet pendiente");
 					System.out.println(lastTryPacketSent + " - " + System.currentTimeMillis() + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis())  + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0));
 					try {
 						if (byteDebug) {
@@ -228,7 +250,7 @@ public abstract class ClientConnection {
 						}
 						send(packet);
 					} catch (WritePacketException | WritePendingException e) {
-						System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente esté escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
+						System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente estï¿½ escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
 					}
 				} else {
 					if (debugMode) {
@@ -291,7 +313,7 @@ public abstract class ClientConnection {
 							@Override
 							public void completed(Integer result, AsynchronousSocketChannel attachment) {
 				                checkNeedUpdateBytesPerSecond();
-				                newbytesPerSecondSent = newbytesPerSecondSent + 8;
+				                newbytesPerSecondSent += 8;
 								//System.out.println(bs + " sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
 								ByteBuffer bufPacket = ByteBuffer.allocate(output.size());
 								bufPacket.put(output.toByteArray());
@@ -312,7 +334,8 @@ public abstract class ClientConnection {
 						                	log("Packet sent (" + bs.size() + ") - " + bs + result);
 						                }
 						                checkNeedUpdateBytesPerSecond();
-						                newbytesPerSecondSent = newbytesPerSecondSent + bufPacket.array().length;
+						                newbytesPerSecondSent += bufPacket.array().length;
+						                bytesSent += bufPacket.array().length;
 						                packetsent++;
 										pendentingSendPacket.remove(packet);
 										if (packet.hasSentCallback()) {
@@ -345,7 +368,7 @@ public abstract class ClientConnection {
 												}
 											} else {
 												System.out.println("Ha fallado el packet, se estaba intentando enviar un packet nullo? pendentingSendPacket: " + pendentingSendPacket.size());
-												System.out.println("Para asegurar la conexión, se ha eliminado este packet de la lista de packets pendientes...");
+												System.out.println("Para asegurar la conexiï¿½n, se ha eliminado este packet de la lista de packets pendientes...");
 												pendentingSendPacket.remove(nextPacket);
 												sendingPacket = null;
 											}
@@ -402,7 +425,8 @@ public abstract class ClientConnection {
 					 */
 					//System.out.println(bs + " Received " + result);
 	                checkNeedUpdateBytesPerSecond();
-	                newbytesPerSecondReceived = newbytesPerSecondReceived + 8; // porque al recibir el numero de packet, el numero pesa 8 bytes
+	                newbytesPerSecondReceived += 8; // porque al recibir el numero de packet, el numero pesa 8 bytes
+	                bytesReceived += 8;
 					try {
 						nextPacketSize = PacketUtilities.getInteger(new ByteArrayInputStream(bufSize.array()));
 				        ByteBuffer bufPacket = ByteBuffer.allocate(nextPacketSize);
@@ -413,7 +437,8 @@ public abstract class ClientConnection {
 								//System.out.println("test");
 								//bufPacket.flip();
 				                checkNeedUpdateBytesPerSecond();
-				                newbytesPerSecondReceived = newbytesPerSecondReceived + bufPacket.position();
+				                newbytesPerSecondReceived += bufPacket.position();
+				                bytesReceived += bufPacket.position();
 								//System.out.println(bs + " Received fully " + bufPacket.position() + " " + bufPacket.limit() + " " + bufPacket.capacity() + " " + nextPacketSize);
 								if (bufPacket.position() < nextPacketSize) {
 									incompletePacket = bufPacket;
@@ -451,7 +476,8 @@ public abstract class ClientConnection {
 				//System.out.println((incompletePacket.position()) + " total de " + nextPacketSize);
 				int readed = incompletePacket.position() - prePosition;
                 checkNeedUpdateBytesPerSecond();
-                newbytesPerSecondReceived = newbytesPerSecondReceived + readed;
+                newbytesPerSecondReceived += readed;
+                bytesReceived += readed;
 				if (incompletePacket.position() < nextPacketSize) {
 					readIncompletePacket();
 				} else {
@@ -504,7 +530,7 @@ public abstract class ClientConnection {
 	    			} else if (packet instanceof PacketGlobalReconnect) {
 	    				PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
 	    				if (reconnectPacket.getKey().equals(reconnectKey)) {
-	    					log("La key reconnect es correcta, reconectando conexión del cliente...");
+	    					log("La key reconnect es correcta, reconectando conexiï¿½n del cliente...");
 	    					//reconnect();
 	    				} else {
 	    					log("La key reconnect ha fallado... Desconectando cliente...");
@@ -572,7 +598,7 @@ public abstract class ClientConnection {
 		}
 	}
 	public boolean isConnected() {
-		return connection != null && connection.isOpen();
+		return connection != null && connection.isOpen() && connectionCompleted;
 	}
 	public long getDownPing() {
 		return downPing;
@@ -598,5 +624,11 @@ public abstract class ClientConnection {
 	}
 	public int getPacketReceived() {
 		return packetReceived;
+	}
+	public boolean canReceiveFile(String dest, String fileType, long fileLenght) {
+		return false;
+	}
+	public void onReceiveFile(String dest, String fileType, long fileLenght) {
+		
 	}
 }
