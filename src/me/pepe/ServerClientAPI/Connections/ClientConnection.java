@@ -16,7 +16,9 @@ import java.nio.channels.CompletionHandler;
 import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.UnresolvedAddressException;
 import java.nio.channels.WritePendingException;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 import me.pepe.ServerClientAPI.Packet;
@@ -28,15 +30,26 @@ import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalKick;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalPing;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnectDefineKey;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCanChangeBytesPerPacket;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCanSent;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCancelSend;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFile;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFileReceived;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileSentRequest;
 import me.pepe.ServerClientAPI.Utils.PacketUtilities;
 import me.pepe.ServerClientAPI.Utils.Utils;
+import me.pepe.ServerClientAPI.Utils.File.FileReceiver;
+import me.pepe.ServerClientAPI.Utils.File.FileSender;
 
 public abstract class ClientConnection {
 	private ServerClientAPI packetManager;
 	private AsynchronousSocketChannel connection;
 	private ClientConnectionType clientConnectionType = null;
 	private List<Packet> pendentingSendPacket = new ArrayList<Packet>();
-	private long maxPacketSize = 40000L;
+	private long maxPacketSizeSend = Utils.getFromSacledBytes("5KB");
+	private long defaultMaxPacketSizeSend = maxPacketSizeSend;
+	private long maxPacketSizeReceive = Utils.getFromSacledBytes("5KB");
+	private long defaultMaxPacketSizeReceive = maxPacketSizeReceive;
 	private int nextPacketSize;
 	private long downPing = 0;
 	private boolean reading = false;
@@ -64,6 +77,8 @@ public abstract class ClientConnection {
 	private Thread timeOutThread;
 	private int packetsent = 0;
 	private int packetReceived = 0;
+	private HashMap<String, FileSender> filesSending = new HashMap<String, FileSender>();
+	private HashMap<String, FileReceiver> filesReceiver = new HashMap<String, FileReceiver>();
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager) {
 		this.connection = connection;
 		this.packetManager = packetManager;
@@ -71,16 +86,16 @@ public abstract class ClientConnection {
 		try {
 			SocketAddress socketAddress = connection.getRemoteAddress();
 			if (socketAddress instanceof InetSocketAddress) {
-			    InetAddress inetAddress = ((InetSocketAddress)socketAddress).getAddress();
-			    if (inetAddress instanceof Inet4Address) {
-			    	ipC = inetAddress.getHostAddress();
-			    	//ipC = ipC.replace(":", "");
-			    } else if (inetAddress instanceof Inet6Address) {
-			    	ipC = inetAddress.getHostAddress();
-			    	//ipC = ipC.replace(":", "");
-			    } else {
-			    	ipC = "Error(Not an IP address of client.)";
-			    }
+				InetAddress inetAddress = ((InetSocketAddress)socketAddress).getAddress();
+				if (inetAddress instanceof Inet4Address) {
+					ipC = inetAddress.getHostAddress();
+					//ipC = ipC.replace(":", "");
+				} else if (inetAddress instanceof Inet6Address) {
+					ipC = inetAddress.getHostAddress();
+					//ipC = ipC.replace(":", "");
+				} else {
+					ipC = "Error(Not an IP address of client.)";
+				}
 			} else {
 				ipC = "Error(Not an internet protocol socket.)";
 			}
@@ -189,11 +204,67 @@ public abstract class ClientConnection {
 	public long getBytesReceived() {
 		return bytesReceived;
 	}
-	public long getMaxPacketSize() {
-		return maxPacketSize;
+	public long getMaxPacketSizeSend() {
+		return maxPacketSizeSend;
 	}
-	public void setMaxPacketSize(long maxPacketSize) {
-		this.maxPacketSize = maxPacketSize;
+	public void setMaxPacketSizeSend(long maxPacketSize, boolean changeDefault) {
+		this.maxPacketSizeSend = maxPacketSize;
+		System.out.println("Max packet size changed to " + Utils.getBytesScaled(maxPacketSize) + " change default: " + changeDefault);
+		if (changeDefault) {
+			this.defaultMaxPacketSizeSend = maxPacketSize;
+		}
+	}
+	private void setMaxPacketSizeSend(long maxPacketSize) {
+		long max = getMaxBytesSenderOnFiles();
+		if (maxPacketSize < max) {
+			this.maxPacketSizeSend = max;
+		} else {
+			this.maxPacketSizeSend = maxPacketSize;
+		}
+	}
+	private long getMaxBytesSenderOnFiles() {
+		long max = -1;
+		for (FileSender sender : filesSending.values()) {
+			if (!sender.isFinished() && sender.getBytesPerPacket() < max) {
+				max = sender.getBytesPerPacket();
+			}
+		}
+		return max;
+	}
+	public void restartMaxPacketSizeReceive() {
+		this.maxPacketSizeReceive = defaultMaxPacketSizeReceive;
+		System.out.println("Max packet size to receive restarted to " + Utils.getBytesScaled(maxPacketSizeSend));
+	}
+	public long getMaxPacketSizeReceive() {
+		return maxPacketSizeReceive;
+	}
+	public void setMaxPacketSizeReceive(long maxPacketSize, boolean changeDefault) {
+		this.maxPacketSizeReceive = maxPacketSize;
+		System.out.println("Max packet size changed to " + Utils.getBytesScaled(maxPacketSize) + " change default: " + changeDefault);
+		if (changeDefault) {
+			this.defaultMaxPacketSizeSend = maxPacketSize;
+		}
+	}
+	private void setMaxPacketSizeReceive(long maxPacketSize) {
+		long max = getMaxBytesReceiverOnFiles();
+		if (maxPacketSize < max) {
+			this.maxPacketSizeReceive = max;
+		} else {
+			this.maxPacketSizeReceive = maxPacketSize;
+		}
+	}
+	private long getMaxBytesReceiverOnFiles() {
+		long max = -1;
+		for (FileReceiver receiver : filesReceiver.values()) {
+			if (!receiver.isFinished() && receiver.getBytesPerPacket() < max) {
+				max = receiver.getBytesPerPacket();
+			}
+		}
+		return max;
+	}
+	public void restartMaxPacketSizeSend() {
+		this.maxPacketSizeSend = defaultMaxPacketSizeSend;
+		System.out.println("Max packet size to send restarted to " + Utils.getBytesScaled(maxPacketSizeSend));
 	}
 	private void checkNeedUpdateBytesPerSecond() {
 		if ((lastBytePerSecondUpdate + 1000) - System.currentTimeMillis() <= 0) {
@@ -294,7 +365,7 @@ public abstract class ClientConnection {
 				ByteArrayOutputStream output = new ByteArrayOutputStream();
 				ByteArrayOutputStream packetOutput = new ByteArrayOutputStream();
 				packet.deserialize(packetOutput);
-				if (packetOutput.size() + 8 < maxPacketSize) {
+				if (packetOutput.size() + 8 < maxPacketSizeSend) {
 					int packetID = packetManager.getPacketID(packet.getClass());
 					if (packetID != 0) {					
 						PacketUtilities.writeInteger(packetID, output);
@@ -312,31 +383,31 @@ public abstract class ClientConnection {
 						connection.write(bufSize, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 							@Override
 							public void completed(Integer result, AsynchronousSocketChannel attachment) {
-				                checkNeedUpdateBytesPerSecond();
-				                newbytesPerSecondSent += 8;
+								checkNeedUpdateBytesPerSecond();
+								newbytesPerSecondSent += 8;
 								//System.out.println(bs + " sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
 								ByteBuffer bufPacket = ByteBuffer.allocate(output.size());
 								bufPacket.put(output.toByteArray());
 								bufPacket.flip();
-				                if (byteDebug) {
-					                log("size sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
+								if (byteDebug) {
+									log("size sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
 									log("intentando enviar el packet completo");
 								}
 								connection.write(bufPacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 									@Override
 									public void completed(Integer result, AsynchronousSocketChannel attachment) {
 										lastPacketSent = System.currentTimeMillis();
-						                if (byteDebug) {
-							                List<Byte> bs = new ArrayList<Byte>();
-							                for (byte b : bufPacket.array()) {
-							                	bs.add(b);
-							                }
-						                	log("Packet sent (" + bs.size() + ") - " + bs + result);
-						                }
-						                checkNeedUpdateBytesPerSecond();
-						                newbytesPerSecondSent += bufPacket.array().length;
-						                bytesSent += bufPacket.array().length;
-						                packetsent++;
+										if (byteDebug) {
+											List<Byte> bs = new ArrayList<Byte>();
+											for (byte b : bufPacket.array()) {
+												bs.add(b);
+											}
+											log("Packet sent (" + bs.size() + ") - " + bs + result);
+										}
+										checkNeedUpdateBytesPerSecond();
+										newbytesPerSecondSent += bufPacket.array().length;
+										bytesSent += bufPacket.array().length;
+										packetsent++;
 										pendentingSendPacket.remove(packet);
 										if (packet.hasSentCallback()) {
 											packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
@@ -400,7 +471,7 @@ public abstract class ClientConnection {
 						System.err.println("El packet " + packet.getClass().getName() + " no esta registrado...");
 					}
 				} else {
-					System.err.println("No se ha enviado el packet " + packet.getClass().getSimpleName() + " porque ocupa mas de " + maxPacketSize + "bytes (" + (packetOutput.size() + 8) + "bytes)");
+					System.err.println("No se ha enviado el packet " + packet.getClass().getSimpleName() + " porque ocupa mas de " + Utils.getBytesScaled(maxPacketSizeSend) + "(" + maxPacketSizeSend + ")" +  " (" + Utils.getBytesScaled(packetOutput.size() + 8) + " (" + (packetOutput.size() + 8) + "bytes))");
 				}
 			} catch (WritePacketException | WritePendingException e) {
 				System.out.println("Error al escribir " + packet.getClass().getName());
@@ -409,8 +480,8 @@ public abstract class ClientConnection {
 		}
 	}
 	private void readNextPacket() {
-        ByteBuffer bufSize = ByteBuffer.allocate(8);
-        connection.read(bufSize, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+		ByteBuffer bufSize = ByteBuffer.allocate(8);
+		connection.read(bufSize, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 			@Override
 			public void completed(Integer result, AsynchronousSocketChannel attachment) {
 				if (result == -1) {
@@ -424,37 +495,41 @@ public abstract class ClientConnection {
 	                }
 					 */
 					//System.out.println(bs + " Received " + result);
-	                checkNeedUpdateBytesPerSecond();
-	                newbytesPerSecondReceived += 8; // porque al recibir el numero de packet, el numero pesa 8 bytes
-	                bytesReceived += 8;
+					checkNeedUpdateBytesPerSecond();
+					newbytesPerSecondReceived += 8; // porque al recibir el numero de bytes, el numero pesa 8 bytes
+					bytesReceived += 8;
 					try {
 						nextPacketSize = PacketUtilities.getInteger(new ByteArrayInputStream(bufSize.array()));
-				        ByteBuffer bufPacket = ByteBuffer.allocate(nextPacketSize);
-				        //System.out.println("illo q pasa intentando coger el packet de " + nextPacketSize);
-				        connection.read(bufPacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
-							@Override
-							public void completed(Integer result, AsynchronousSocketChannel attachment) {
-								//System.out.println("test");
-								//bufPacket.flip();
-				                checkNeedUpdateBytesPerSecond();
-				                newbytesPerSecondReceived += bufPacket.position();
-				                bytesReceived += bufPacket.position();
-								//System.out.println(bs + " Received fully " + bufPacket.position() + " " + bufPacket.limit() + " " + bufPacket.capacity() + " " + nextPacketSize);
-								if (bufPacket.position() < nextPacketSize) {
-									incompletePacket = bufPacket;
-									readIncompletePacket();
-								} else {
-									read(bufPacket);
+						if (nextPacketSize + 8 < maxPacketSizeReceive) {
+							ByteBuffer bufPacket = ByteBuffer.allocate(nextPacketSize);
+							//System.out.println("illo q pasa intentando coger el packet de " + nextPacketSize);
+							connection.read(bufPacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+								@Override
+								public void completed(Integer result, AsynchronousSocketChannel attachment) {
+									//System.out.println("test");
+									//bufPacket.flip();
+									checkNeedUpdateBytesPerSecond();
+									newbytesPerSecondReceived += bufPacket.position();
+									bytesReceived += bufPacket.position();
+									//System.out.println(bs + " Received fully " + bufPacket.position() + " " + bufPacket.limit() + " " + bufPacket.capacity() + " " + nextPacketSize);
+									if (bufPacket.position() < nextPacketSize) {
+										incompletePacket = bufPacket;
+										readIncompletePacket();
+									} else {
+										read(bufPacket);
+									}
 								}
-							}
-							@Override
-							public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-								if (exc instanceof AsynchronousCloseException) {
-									disconnect();
-								}
-								System.out.println("ERROR AL COGER EL PACKET RECIBIDO");							
-							}        	
-				        });
+								@Override
+								public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
+									if (exc instanceof AsynchronousCloseException) {
+										disconnect();
+									}
+									System.out.println("ERROR AL COGER EL PACKET RECIBIDO");							
+								}        	
+							});
+						} else {
+							System.err.println("No se ha leido el siguiente packet porque ocupa mas de " + Utils.getBytesScaled(maxPacketSizeReceive) + "(" + maxPacketSizeReceive + ")" +  " (" + Utils.getBytesScaled(nextPacketSize + 8) + " (" + (nextPacketSize + 8) + "bytes))");
+						}
 					} catch (ReadPacketException e) {
 						e.printStackTrace();
 						disconnect();
@@ -465,19 +540,19 @@ public abstract class ClientConnection {
 			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
 				disconnect();
 			}        	
-        });
+		});
 	}
 	private void readIncompletePacket() {
 		//System.out.println("Packet incompleto leido, queda por leer " + (nextPacketSize - incompletePacket.position()) + " bytes");
 		int prePosition = incompletePacket.position();
-        connection.read(incompletePacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+		connection.read(incompletePacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 			@Override
 			public void completed(Integer result, AsynchronousSocketChannel attachment) {
 				//System.out.println((incompletePacket.position()) + " total de " + nextPacketSize);
 				int readed = incompletePacket.position() - prePosition;
-                checkNeedUpdateBytesPerSecond();
-                newbytesPerSecondReceived += readed;
-                bytesReceived += readed;
+				checkNeedUpdateBytesPerSecond();
+				newbytesPerSecondReceived += readed;
+				bytesReceived += readed;
 				if (incompletePacket.position() < nextPacketSize) {
 					readIncompletePacket();
 				} else {
@@ -491,12 +566,12 @@ public abstract class ClientConnection {
 				}
 				System.out.println("ERROR AL COGER EL INCOMPLETO PACKET RECIBIDO");							
 			}        	
-        });
+		});
 	}
 	private void read(ByteBuffer bufPacket) {
-        ByteArrayInputStream input = new ByteArrayInputStream(bufPacket.array());
-        int packetID = 0;
-        long current = 0;
+		ByteArrayInputStream input = new ByteArrayInputStream(bufPacket.array());
+		int packetID = 0;
+		long current = 0;
 		try {
 			if (byteDebug) {
 				List<Byte> testList = new ArrayList<Byte>();
@@ -506,9 +581,9 @@ public abstract class ClientConnection {
 				log("Packet Received (" + testList.size() + ") " + testList);	
 			}
 			packetID = PacketUtilities.getInteger(input);
-	        int cliendID = PacketUtilities.getInteger(input);
-	        current = PacketUtilities.getLong(input);
-	        Packet packet = null;
+			int cliendID = PacketUtilities.getInteger(input);
+			current = PacketUtilities.getLong(input);
+			Packet packet = null;
 			try {
 				packet = packetManager.getPacket(packetID, input);
 			} catch (ReadPacketException e) {
@@ -519,49 +594,164 @@ public abstract class ClientConnection {
 				}
 				System.err.println(exception);
 			}
-	        if (packet != null) {
-                packetReceived++;
-	        	packet.setCurrent(current);
-	    		downPing = System.currentTimeMillis() - packet.getCurrent();
-	    		if (packet.getPacketToClientType() == 0) {
-	    			if (packet instanceof PacketGlobalReconnectDefineKey) {
-	    				PacketGlobalReconnectDefineKey defineKey = (PacketGlobalReconnectDefineKey) packet;
-	    				reconnectKey = defineKey.getKey();
-	    			} else if (packet instanceof PacketGlobalReconnect) {
-	    				PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
-	    				if (reconnectPacket.getKey().equals(reconnectKey)) {
-	    					log("La key reconnect es correcta, reconectando conexi�n del cliente...");
-	    					//reconnect();
-	    				} else {
-	    					log("La key reconnect ha fallado... Desconectando cliente...");
-	    					disconnect();
-	    				}
-	    			} else if (packet instanceof PacketGlobalDisconnect) {
-	    				disconnect();
-	    			} else if (packet instanceof PacketGlobalKick) {
-	    				if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
-	    					disconnect();
-	    				}
-	    			} else if (packet instanceof PacketGlobalPing) {
-	    				lastPinged = System.currentTimeMillis();
-	    				if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
-	    					sendPacket(packet);
-	    				} else {
-	    					//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
-	    				}
-	    			}
-	    		} else {
-	    			onRecibe(packet);
-	    		}
-	        } else {
+			if (packet != null) {
+				packetReceived++;
+				packet.setCurrent(current);
+				downPing = System.currentTimeMillis() - packet.getCurrent();
+				if (packet.getPacketToClientType() == 0) {
+					if (packet instanceof PacketGlobalReconnectDefineKey) {
+						PacketGlobalReconnectDefineKey defineKey = (PacketGlobalReconnectDefineKey) packet;
+						reconnectKey = defineKey.getKey();
+					} else if (packet instanceof PacketGlobalReconnect) {
+						PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
+						if (reconnectPacket.getKey().equals(reconnectKey)) {
+							log("La key reconnect es correcta, reconectando conexi�n del cliente...");
+							//reconnect();
+						} else {
+							log("La key reconnect ha fallado... Desconectando cliente...");
+							disconnect();
+						}
+					} else if (packet instanceof PacketGlobalDisconnect) {
+						disconnect();
+					} else if (packet instanceof PacketGlobalKick) {
+						if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
+							disconnect();
+						}
+					} else if (packet instanceof PacketGlobalPing) {
+						lastPinged = System.currentTimeMillis();
+						if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
+							sendPacket(packet);
+						} else {
+							//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
+						}
+					} else if (packet instanceof PacketFileCanSent) {
+						PacketFileCanSent solicitudePacket = (PacketFileCanSent) packet;
+						boolean request = canReceiveFile(solicitudePacket.getPath(), solicitudePacket.getFileType(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght());
+						if (request) {
+							setMaxPacketSizeReceive(solicitudePacket.getBytesPerPacket() + 50);
+							filesReceiver.put(solicitudePacket.getCode(), new FileReceiver(solicitudePacket.getCode(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght(), solicitudePacket.getPath()));
+						}
+						sendPacket(new PacketFileSentRequest(solicitudePacket.getCode(), request));
+					} else if (packet instanceof PacketFileSentRequest) {
+						PacketFileSentRequest requestPacket = (PacketFileSentRequest) packet;
+						if (requestPacket.canSent()) {
+							if (filesSending.containsKey(requestPacket.getCode())) {
+								FileSender fileSender = filesSending.get(requestPacket.getCode());
+								setMaxPacketSizeSend(fileSender.getBytesPerPacket() + 50);
+								sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
+							} else {
+								System.out.println("Se acepto el envio del archivo " + requestPacket.getCode() + " pero el FileSender no estaba creado!");
+							}
+						} else {
+							System.out.println("No se acepto el envio del archivo " + requestPacket.getCode());
+						}
+					} else if (packet instanceof PacketFilePartOfFile) {
+						PacketFilePartOfFile partOfFilePacket = (PacketFilePartOfFile) packet;
+						if (filesReceiver.containsKey(partOfFilePacket.getCode())) {
+							FileReceiver fileReceiver = filesReceiver.get(partOfFilePacket.getCode());
+							if (fileReceiver.received(partOfFilePacket.getBytes())) {
+								sendPacket(new PacketFilePartOfFileReceived(fileReceiver.getCode(), partOfFilePacket.getBytes().length));
+								if (fileReceiver.isFinished()) {
+									long max = getMaxBytesReceiverOnFiles();
+									if (max == -1) {
+										restartMaxPacketSizeReceive();
+									} else {
+										setMaxPacketSizeReceive(max);
+									}
+									System.out.println("File " + fileReceiver.getFilePath() + " downloaded succesfully in " + fileReceiver.getReceivedTime() + "ms!");
+									onReceiveFile(fileReceiver.getFilePath(), ".test!", fileReceiver.getFileLenght());
+								}
+							} else {
+								System.out.println("Se envió la cancelación del envio del archivo " + fileReceiver.getCode());
+								sendPacket(new PacketFileCancelSend(fileReceiver.getCode()));
+							}
+						}
+					} else if (packet instanceof PacketFilePartOfFileReceived) {
+						PacketFilePartOfFileReceived partReceivedPacket = (PacketFilePartOfFileReceived) packet;
+						if (filesSending.containsKey(partReceivedPacket.getCode())) {
+							FileSender fileSender = filesSending.get(partReceivedPacket.getCode());
+							filesSending.get(partReceivedPacket.getCode()).sent(partReceivedPacket.getBytesLenght());
+							if (fileSender.isFinished()) {
+								long max = getMaxBytesSenderOnFiles();
+								if (max == -1) {
+									restartMaxPacketSizeSend();
+								} else {
+									setMaxPacketSizeSend(max);
+								}
+								System.out.println("File " + fileSender.getFilePath() + " enviado completo en " + fileSender.getSentTime() + "ms!");
+							} else {
+								sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
+							}
+						} else {
+							System.out.println("No se pudo enviar el archivo porque no existe el sender");
+						}
+					} else if (packet instanceof PacketFileCancelSend) {
+						PacketFileCancelSend cancelPacket = (PacketFileCancelSend) packet;
+						if (filesSending.containsKey(cancelPacket.getCode())) {
+							System.out.println("Se ha cancelado el envio del archivo " + filesSending.get(cancelPacket.getCode()).getFilePath() + " con el codigo " + cancelPacket.getCode());
+							filesSending.remove(cancelPacket.getCode());
+						} else {
+							System.out.println("Se ha intentando cancelar el archivo con el codigo " + cancelPacket.getCode() + " pero este sender no existia");
+						}
+					} else if (packet instanceof PacketFileCanChangeBytesPerPacket) {
+						PacketFileCanChangeBytesPerPacket canChange = (PacketFileCanChangeBytesPerPacket) packet;
+						if (filesSending.containsKey(canChange.getCode())) {
+							setMaxPacketSizeSend(canChange.getBytes() + 50);
+							filesSending.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
+							System.out.println("Se ha cambiado el numero de bytes por packet del sender " + canChange.getCode());
+						} else if (filesReceiver.containsKey(canChange.getCode())) {
+							if (canChangeBytesPerPacket(canChange.getCode(), filesReceiver.get(canChange.getCode()).getFilePath(), canChange.getBytes())) {
+								setMaxPacketSizeReceive(canChange.getBytes() + 50);
+								filesReceiver.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
+								sendPacket(canChange);
+								System.out.println("Se ha aceptado el cambio de bytes per packet del receiver " + canChange.getCode());
+							} else {
+								System.out.println("Se ha denegado el cambio de bytes per packet del receiver " + canChange.getCode());
+							}
+						} else {
+							System.out.println("No se ha podido cambiar el numro de bytes por paquete en el envio de packet " + canChange.getCode() + " no se ha encontrado su sender");
+						}
+					}
+				} else {
+					onRecibe(packet);
+				}
+			} else {
 				System.err.println("Packet recibido con ID " + packetID + " no registrado...");
-	        }
+			}
 		} catch (ReadPacketException e) {
 			System.err.println("Error al obtener la id del packet, posiblemente corrupto");
 			e.printStackTrace();
 		} finally {
 			nextPacketSize = 0;
 			readNextPacket();
+		}
+	}
+	public String sendFile(String path, String dest) {
+		return sendFile(path, dest, Utils.getFromSacledBytes("1MB"));
+	}
+	public String sendFile(String path, String dest, long bytesPerPacket) {
+		FileSender sender = new FileSender(getRandomFileCode(), path, bytesPerPacket);
+		filesSending.put(sender.getCode(), sender);
+		sendPacket(new PacketFileCanSent(sender.getCode(), sender.getFileType(), dest, sender.getBytesPerPacket(), sender.getFileLenght()));
+		return sender.getCode();
+	}
+	public void changeBytesPerPacketOfSender(String code, long bytes) {
+		sendPacket(new PacketFileCanChangeBytesPerPacket(code, bytes));
+	}
+	private String getRandomFileCode() {
+		String result = "";
+		final char[] chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".toCharArray();
+		for (int i = 0; i < 10; i++) {
+			char c = chars[Utils.random.nextInt(chars.length)];
+			if (Character.isLetter(c)) {
+				
+			}
+			result = result + (Character.isLetter(c) ? Utils.random.nextBoolean() ? Character.toLowerCase(c) : c : c);
+		}
+		if (filesReceiver.containsKey(result) || filesSending.containsKey(result)) {
+			return getRandomFileCode();
+		} else {
+			return result;
 		}
 	}
 	public void reconnect(AsynchronousSocketChannel connection) {
@@ -625,10 +815,13 @@ public abstract class ClientConnection {
 	public int getPacketReceived() {
 		return packetReceived;
 	}
-	public boolean canReceiveFile(String dest, String fileType, long fileLenght) {
+	public boolean canReceiveFile(String dest, String fileType, long bytesPerPacket, long fileLenght) {
 		return false;
 	}
+	public boolean canChangeBytesPerPacket(String code, String filePath, long bytes) {
+		return true;
+	}
 	public void onReceiveFile(String dest, String fileType, long fileLenght) {
-		
+
 	}
 }

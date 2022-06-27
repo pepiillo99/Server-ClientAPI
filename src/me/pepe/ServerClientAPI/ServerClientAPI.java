@@ -9,6 +9,12 @@ import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalKick;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalPing;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnectDefineKey;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCanChangeBytesPerPacket;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCanSent;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCancelSend;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFile;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFileReceived;
+import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileSentRequest;
 
 public class ServerClientAPI {
 	private int packetSize = 1;
@@ -43,5 +49,11 @@ public class ServerClientAPI {
 		addPacket(new PacketGlobalPing());
 		addPacket(new PacketGlobalKick());
 		addPacket(new PacketGlobalDisconnect());
+		addPacket(new PacketFileCanSent());
+		addPacket(new PacketFilePartOfFile());
+		addPacket(new PacketFilePartOfFileReceived());
+		addPacket(new PacketFileSentRequest());
+		addPacket(new PacketFileCancelSend());
+		addPacket(new PacketFileCanChangeBytesPerPacket());
 	}
 }
