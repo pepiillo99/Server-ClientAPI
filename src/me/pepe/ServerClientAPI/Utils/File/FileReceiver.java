@@ -15,7 +15,9 @@ public class FileReceiver {
 	private BufferedOutputStream bos;
 	private long startTime, finishTime;
 	private long bytesPerPacket = 0;
-	private long lastInfo = 0;
+	private long lastInformed = 0;
+	private long lastReceived = 0;
+	private long timeToInform = 0;
 	public FileReceiver(String code, long bytesPerPacket, long fileLenght, String filePath) {
 		this.code = code;
 		this.bytesPerPacket = bytesPerPacket;
@@ -57,6 +59,10 @@ public class FileReceiver {
 	public String getFilePath() {
 		return filePath;
 	}
+	public String getFileType() {
+		String[] split = filePath.split("\\.");
+	       return split[split.length-1];
+	}
 	public long getReceived() {
 		return received;
 	}
@@ -65,11 +71,11 @@ public class FileReceiver {
 	    	if (bytesPerPacket >= bytes.length) {
 				bos.write(bytes, 0, (int) bytes.length);
 				received += bytes.length;
-				if ((lastInfo + 5000) - System.currentTimeMillis() < 0) {
-					lastInfo = System.currentTimeMillis();
-					System.out.println(received + " recibido de " + fileLenght + " - " + getPorcentReceived() + "%");
+				if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
+					lastInformed = System.currentTimeMillis();
+					System.out.println(received + " recibido de " + fileLenght + " - " + getPorcentReceived() + "% " + (System.currentTimeMillis() - lastReceived) + "ms de diferencia entre paquetes");
 				}
-				//System.out.println(received + " recibido de " + fileLenght + " - " + getPorcentReceived() + "%");
+				lastReceived = System.currentTimeMillis();
 				if (isFinished()) {
 					bos.flush();
 					fos.close();

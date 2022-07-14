@@ -12,9 +12,11 @@ public class FileSender {
 	private long sent = 0;
 	private long bytesPerPacket= -1;
 	private long startTime, finishTime;
-	private long lastInfo = 0;
+	private long lastInformed = 0;
+	private long lastSent = 0;
+	private long timeToInform = 0;
 	/*
-	 * default sent 1MB per packet
+	 * default sent 1MB per packet im tested and its ideally sent 25MB per packet :)
 	 */
 	public FileSender(String code, String filePath, long bytesPerPacket) {
 		this(code, new File(filePath), bytesPerPacket);
@@ -23,12 +25,17 @@ public class FileSender {
 		this.code = code;
 		this.startTime = System.currentTimeMillis();
 		this.bytesPerPacket = bytesPerPacket;
-		if (file != null && file.exists()) {
+		this.lastSent = System.currentTimeMillis();
+		if (file != null && file.exists() && file.isFile()) {
 			this.fileLenght = file.length();
 			this.filePath = file.getPath();
 		} else {
 			if (file != null) {
-				throw new NullPointerException("El archivo " + file.getPath() + " no existe!");
+				if (!file.isFile()) {
+					throw new IllegalArgumentException("El archivo " + file.getPath() + " no es un archivo valido para enviar!");
+ 				} else {
+ 					throw new NullPointerException("El archivo " + file.getPath() + " no existe!");
+ 				}
 			} else {
 				throw new NullPointerException("El archivo que intenta enviar no existe!");
 			}
@@ -74,10 +81,11 @@ public class FileSender {
 	}
 	public void sent(long lenght) {
 		sent += lenght;
-		if ((lastInfo + 5000) - System.currentTimeMillis() < 0) {
-			lastInfo = System.currentTimeMillis();
-			System.out.println(sent + " enviado de " + fileLenght + " - " + getPorcentSent() + "% - " + code);
+		if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
+			lastInformed = System.currentTimeMillis();
+			System.out.println(sent + " enviado de " + fileLenght + " - " + getPorcentSent() + "% - " + code + " " + (System.currentTimeMillis() - lastSent) + "ms de diferencia entre paquetes");
 		}
+		lastSent = System.currentTimeMillis();
 		if (isFinished()) {
 			finishTime = System.currentTimeMillis();
 		}

@@ -16,7 +16,6 @@ import java.nio.channels.CompletionHandler;
 import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.UnresolvedAddressException;
 import java.nio.channels.WritePendingException;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -659,7 +658,7 @@ public abstract class ClientConnection {
 										setMaxPacketSizeReceive(max);
 									}
 									System.out.println("File " + fileReceiver.getFilePath() + " downloaded succesfully in " + fileReceiver.getReceivedTime() + "ms!");
-									onReceiveFile(fileReceiver.getFilePath(), ".test!", fileReceiver.getFileLenght());
+									onReceiveFile(fileReceiver.getFilePath(), fileReceiver.getFileType(), fileReceiver.getFileLenght());
 								}
 							} else {
 								System.out.println("Se envió la cancelación del envio del archivo " + fileReceiver.getCode());
