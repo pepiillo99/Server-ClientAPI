@@ -89,3 +89,20 @@ public class ClientServer extends ClientConnection {
 ```
 
 With this we will have the possibility of both connecting the client and sending information between both :)
+
+In a recent update I implemented the possibility of being able to send files, which makes the maximum number of bytes per packet to be edited according to the client/server's needs.
+
+In order to receive files we must first accept the file on the client/server adding this code on ClientConnection class:
+
+```java
+@Override
+public boolean canReceiveFile(String dest, String fileType, long bytesPerPacket, long fileLenght) {
+	return true;
+}
+```
+
+This way the client/server will accept any file it receives. The arguments to the method are the destination of the file, the type of file, the bytes per packet to send the file (default 1MB), and the weight of the file.
+
+While sending a file you can continue sending packages normally. Although you have to keep in mind that if the number of bytes per packet is too high it could cause delays in client/server communication, I always advise leaving it by default (1MB) until you develop a system that calculates the most optimal number of bytes per packet. for each client and connections.
+
+To send a file we will simply use the ```java sendFile(String path, String dest, long bytesPerPacket(not recommended use))``` method of the ClientConnection class. This will return a code which the system uses to identify the shipment. We also have the method ```java changeBytesPerPacketOfSender(String code, long bytes)``` which allows us to change the bytes per packet sent when sending a file (which I previously commented recommend leaving by default).
