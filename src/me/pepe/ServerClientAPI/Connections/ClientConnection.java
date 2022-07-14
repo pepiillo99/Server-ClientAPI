@@ -743,9 +743,8 @@ public abstract class ClientConnection {
 		for (int i = 0; i < 10; i++) {
 			char c = chars[Utils.random.nextInt(chars.length)];
 			if (Character.isLetter(c)) {
-				
+				result = result + (Character.isLetter(c) ? Utils.random.nextBoolean() ? Character.toLowerCase(c) : c : c);
 			}
-			result = result + (Character.isLetter(c) ? Utils.random.nextBoolean() ? Character.toLowerCase(c) : c : c);
 		}
 		if (filesReceiver.containsKey(result) || filesSending.containsKey(result)) {
 			return getRandomFileCode();
