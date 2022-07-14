@@ -97,6 +97,10 @@ In order to receive files we must first accept the file on the client/server add
 public boolean canReceiveFile(String dest, String fileType, long bytesPerPacket, long fileLenght) {
 	return true;
 }
+@Override
+public void onReceiveFile(String dest, String fileType, long fileLenght) {
+	// bla bla bla
+}
 ```
 
 This way the client/server will accept any file it receives. The arguments to the method are the destination of the file, the type of file, the bytes per packet to send the file (default 1MB), and the weight of the file.
