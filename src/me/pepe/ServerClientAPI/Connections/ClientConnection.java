@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
+import javax.sound.sampled.LineUnavailableException;
+
 import me.pepe.ServerClientAPI.Packet;
 import me.pepe.ServerClientAPI.ServerClientAPI;
 import me.pepe.ServerClientAPI.Exceptions.ReadPacketException;
@@ -35,10 +37,14 @@ import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCancelSend;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFile;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFileReceived;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileSentRequest;
+import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatReceive;
+import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatSend;
 import me.pepe.ServerClientAPI.Utils.PacketUtilities;
 import me.pepe.ServerClientAPI.Utils.Utils;
 import me.pepe.ServerClientAPI.Utils.File.FileReceiver;
 import me.pepe.ServerClientAPI.Utils.File.FileSender;
+import me.pepe.ServerClientAPI.VoiceChat.AudioChannel;
+import me.pepe.ServerClientAPI.VoiceChat.MicrophoneThread;
 
 public abstract class ClientConnection {
 	private ServerClientAPI packetManager;
@@ -58,7 +64,7 @@ public abstract class ClientConnection {
 	private boolean connectionCompleted = false; // first connection is completed?
 	private long lastTryPacketSent = 0;
 	private long lastPacketSent = 0;
-	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizï¿½ los bytes por segundo
+	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizá los bytes por segundo
 	// b/s Received
 	private int bytesPerSecondReceived = 0;
 	private int newbytesPerSecondReceived = 0;	
@@ -78,6 +84,12 @@ public abstract class ClientConnection {
 	private int packetReceived = 0;
 	private HashMap<String, FileSender> filesSending = new HashMap<String, FileSender>();
 	private HashMap<String, FileReceiver> filesReceiver = new HashMap<String, FileReceiver>();
+	// voice chat
+	private boolean canEarn = false;
+	private boolean canSpeak = false;
+	private MicrophoneThread micThread;
+	private HashMap<Integer, AudioChannel> audioChannels = new HashMap<Integer, AudioChannel>();
+	//
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager) {
 		this.connection = connection;
 		this.packetManager = packetManager;
@@ -272,8 +284,6 @@ public abstract class ClientConnection {
 			bytesPerSecondSent = newbytesPerSecondSent;
 			newbytesPerSecondSent = 0;
 			lastBytePerSecondUpdate = System.currentTimeMillis();
-		} else {
-			// no necesita actualizarlo
 		}
 	}
 	public void sendPacket(Packet packet) {
@@ -302,17 +312,17 @@ public abstract class ClientConnection {
 		} else {
 			pendentingSendPacket.add(packet);
 			if (sendingPacket == null && lastTryPacketSent == 0) {
-				System.out.println("Se intentarï¿½ forzar el envio del packet...");
+				System.out.println("Se intentará forzar el envio del packet...");
 				try {
 					send(packet);
 				} catch (WritePacketException | WritePendingException e) {
-					System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente estï¿½ escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
+					System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente está escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
 				}
 				System.out.println("Packet enviado de forma forzada...");
 			} else {
 				if ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0) {
 					onErrorSend();
-					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. ï¿½El proceso de send esta parado? forzando el envio del packet pendiente");
+					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. áEl proceso de send esta parado? forzando el envio del packet pendiente");
 					System.out.println(lastTryPacketSent + " - " + System.currentTimeMillis() + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis())  + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0));
 					try {
 						if (byteDebug) {
@@ -320,7 +330,7 @@ public abstract class ClientConnection {
 						}
 						send(packet);
 					} catch (WritePacketException | WritePendingException e) {
-						System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente estï¿½ escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
+						System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente está escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
 					}
 				} else {
 					if (debugMode) {
@@ -438,7 +448,7 @@ public abstract class ClientConnection {
 												}
 											} else {
 												System.out.println("Ha fallado el packet, se estaba intentando enviar un packet nullo? pendentingSendPacket: " + pendentingSendPacket.size());
-												System.out.println("Para asegurar la conexiï¿½n, se ha eliminado este packet de la lista de packets pendientes...");
+												System.out.println("Para asegurar la conexián, se ha eliminado este packet de la lista de packets pendientes...");
 												pendentingSendPacket.remove(nextPacket);
 												sendingPacket = null;
 											}
@@ -604,7 +614,7 @@ public abstract class ClientConnection {
 					} else if (packet instanceof PacketGlobalReconnect) {
 						PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
 						if (reconnectPacket.getKey().equals(reconnectKey)) {
-							log("La key reconnect es correcta, reconectando conexiï¿½n del cliente...");
+							log("La key reconnect es correcta, reconectando conexián del cliente...");
 							//reconnect();
 						} else {
 							log("La key reconnect ha fallado... Desconectando cliente...");
@@ -661,7 +671,7 @@ public abstract class ClientConnection {
 									onReceiveFile(fileReceiver.getFilePath(), fileReceiver.getFileType(), fileReceiver.getFileLenght());
 								}
 							} else {
-								System.out.println("Se enviÃ³ la cancelaciÃ³n del envio del archivo " + fileReceiver.getCode());
+								System.out.println("Se envió la cancelación del envio del archivo " + fileReceiver.getCode());
 								sendPacket(new PacketFileCancelSend(fileReceiver.getCode()));
 							}
 						}
@@ -710,6 +720,12 @@ public abstract class ClientConnection {
 						} else {
 							System.out.println("No se ha podido cambiar el numro de bytes por paquete en el envio de packet " + canChange.getCode() + " no se ha encontrado su sender");
 						}
+					} else if (packet instanceof PacketVoiceChatReceive) {
+						PacketVoiceChatReceive vcReceive = (PacketVoiceChatReceive) packet;
+						earn(vcReceive);
+					} else if (packet instanceof PacketVoiceChatSend) {
+						PacketVoiceChatSend vcSend = (PacketVoiceChatSend) packet;
+						onSpeak(vcSend);
 					}
 				} else {
 					onRecibe(packet);
@@ -742,9 +758,7 @@ public abstract class ClientConnection {
 		final char[] chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".toCharArray();
 		for (int i = 0; i < 10; i++) {
 			char c = chars[Utils.random.nextInt(chars.length)];
-			if (Character.isLetter(c)) {
-				result = result + (Character.isLetter(c) ? Utils.random.nextBoolean() ? Character.toLowerCase(c) : c : c);
-			}
+			result = result + (Character.isLetter(c) ? Utils.random.nextBoolean() ? Character.toLowerCase(c) : c : c);
 		}
 		if (filesReceiver.containsKey(result) || filesSending.containsKey(result)) {
 			return getRandomFileCode();
@@ -784,6 +798,14 @@ public abstract class ClientConnection {
 		if (timeOutThread != null && timeOutThread.isAlive()) {
 			timeOutThread.stop();
 		}
+		if (micThread != null && micThread.isAlive()) {
+			micThread.stop();
+			micThread = null;
+		}
+		for (AudioChannel channel : audioChannels.values()) {
+			channel.stop();
+		}
+		audioChannels.clear();
 	}
 	public boolean isConnected() {
 		return connection != null && connection.isOpen() && connectionCompleted;
@@ -822,4 +844,62 @@ public abstract class ClientConnection {
 	public void onReceiveFile(String dest, String fileType, long fileLenght) {
 
 	}
+	public boolean isCanEarn() {
+		return canEarn;
+	}
+	public void setCanEarn(boolean canEarn) {
+		this.canEarn = canEarn;
+	}
+	public boolean isCanSpeak() {
+		return canSpeak;
+	}
+	public void setCanSpeak(boolean canSpeak) {
+		this.canSpeak = canSpeak;
+	}
+	public boolean canEarn(int channelID) {
+		return false;
+	}
+	public void earn(PacketVoiceChatReceive packet) {
+		if (canEarn && canEarn(packet.getChannelID())) {
+			if (!audioChannels.containsKey(packet.getChannelID())) {
+				audioChannels.put(packet.getChannelID(), new AudioChannel(packet.getChannelID()));
+				audioChannels.get(packet.getChannelID()).start();
+				System.out.println("New audio channel openned " + packet.getChannelID());
+			}
+			audioChannels.get(packet.getChannelID()).addToQueue(packet);
+		}
+	}
+	public void speak(PacketVoiceChatSend packet) {
+		if (canSpeak) {
+			sendPacket(packet);
+		}
+	}
+	public boolean isMicrophoneOpenned() {
+		return micThread != null;
+	}
+	public void openMicrophone() throws LineUnavailableException {
+		if (!isMicrophoneOpenned()) {
+			micThread = new MicrophoneThread() {
+				@Override
+				public void send(PacketVoiceChatSend packet) {
+					sendPacket(packet);
+				}				
+			};
+			micThread.start();
+		}
+	}
+	/*
+	 * En la parte del servidor deberemos definir la ID del canal, recomiendo
+	 * que sea la ID del cliente...
+	 */
+	public int getChannelID() { // SOLO SE USARA EN EL SERVIDOR
+		return -1;
+	}
+	/*
+	 * En la parte del servidor deberemos enviar este packet al resto de clientes
+	 * Antes deberemos de pasarlo a PacketVoiceChatReceive con el metodo que está
+	 * integrado dentro de la clase del paquete toSend(int channelID)
+	 * La ID del canal será la misma ID del cliente.
+	 */
+	public void onSpeak(PacketVoiceChatSend packet) {}
 }

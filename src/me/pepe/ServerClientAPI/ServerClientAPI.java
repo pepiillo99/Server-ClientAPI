@@ -15,6 +15,9 @@ import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCancelSend;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFile;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFileReceived;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileSentRequest;
+import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChannelClosed;
+import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatReceive;
+import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatSend;
 
 public class ServerClientAPI {
 	private int packetSize = 1;
@@ -55,5 +58,8 @@ public class ServerClientAPI {
 		addPacket(new PacketFileSentRequest());
 		addPacket(new PacketFileCancelSend());
 		addPacket(new PacketFileCanChangeBytesPerPacket());
+		addPacket(new PacketVoiceChannelClosed());
+		addPacket(new PacketVoiceChatReceive());
+		addPacket(new PacketVoiceChatSend());
 	}
 }
