@@ -6,6 +6,8 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
+import me.pepe.ServerClientAPI.Utils.Utils;
+
 public class FileReceiver {
 	private String code;
 	private long fileLenght = 0;
@@ -73,7 +75,7 @@ public class FileReceiver {
 				received += bytes.length;
 				if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
 					lastInformed = System.currentTimeMillis();
-					System.out.println(received + " recibido de " + fileLenght + " - " + getPorcentReceived() + "% " + (System.currentTimeMillis() - lastReceived) + "ms de diferencia entre paquetes");
+					System.out.println(Utils.getBytesScaled(received) + "(" + received + ") recibido de " + Utils.getBytesScaled(fileLenght) + "(" + fileLenght + ") - " + getPorcentReceived() + "% " + (System.currentTimeMillis() - lastReceived) + "ms de diferencia entre paquetes");
 				}
 				lastReceived = System.currentTimeMillis();
 				if (isFinished()) {

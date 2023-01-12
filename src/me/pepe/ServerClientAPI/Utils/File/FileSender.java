@@ -5,6 +5,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 
+import me.pepe.ServerClientAPI.Utils.Utils;
+
 public class FileSender {
 	private String code;
 	private long fileLenght = 0;
@@ -83,7 +85,7 @@ public class FileSender {
 		sent += lenght;
 		if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
 			lastInformed = System.currentTimeMillis();
-			System.out.println(sent + " enviado de " + fileLenght + " - " + getPorcentSent() + "% - " + code + " " + (System.currentTimeMillis() - lastSent) + "ms de diferencia entre paquetes");
+			System.out.println(Utils.getBytesScaled(sent) + "(" + sent + ") enviado de " + Utils.getBytesScaled(fileLenght) + "(" + fileLenght + ") - " + getPorcentSent() + "% - " + code + " " + (System.currentTimeMillis() - lastSent) + "ms de diferencia entre paquetes");
 		}
 		lastSent = System.currentTimeMillis();
 		if (isFinished()) {

@@ -322,7 +322,7 @@ public abstract class ClientConnection {
 			} else {
 				if ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0) {
 					onErrorSend();
-					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. áEl proceso de send esta parado? forzando el envio del packet pendiente");
+					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. ¿El proceso de send esta parado? forzando el envio del packet pendiente");
 					System.out.println(lastTryPacketSent + " - " + System.currentTimeMillis() + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis())  + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0));
 					try {
 						if (byteDebug) {
@@ -448,7 +448,7 @@ public abstract class ClientConnection {
 												}
 											} else {
 												System.out.println("Ha fallado el packet, se estaba intentando enviar un packet nullo? pendentingSendPacket: " + pendentingSendPacket.size());
-												System.out.println("Para asegurar la conexián, se ha eliminado este packet de la lista de packets pendientes...");
+												System.out.println("Para asegurar la conexión, se ha eliminado este packet de la lista de packets pendientes...");
 												pendentingSendPacket.remove(nextPacket);
 												sendingPacket = null;
 											}
