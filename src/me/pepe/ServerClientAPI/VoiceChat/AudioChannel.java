@@ -22,9 +22,7 @@ public class AudioChannel extends Thread {
 	private AudioFormat audioFormat = new AudioFormat(11025f, 8, 1, true, true); //11.025khz, 8bit, mono, signed, big endian (changes nothing in 8 bit) ~8kb/s
 	private SourceDataLine speaker;
 	private boolean earning = true;
-	private float db;
-	private float rms;
-	private int noise;
+	private SoundData soundData = new SoundData(0, 0, 0);
 	private int maxInfoPerPacket = 1024;
 	public AudioChannel(int channelID) {
 		this.channelID = channelID;
@@ -50,13 +48,13 @@ public class AudioChannel extends Thread {
 		}
 	}
 	public int getNoise() {
-		return noise;
+		return soundData.getNoise();
 	}
-	public float getDB() {
-		return db;
+	public double getDB() {
+		return soundData.getDB();
 	}
-	public float getRMS() {
-		return rms;
+	public double getRMS() {
+		return soundData.getRMS();
 	}
 	@Override
 	public void run() {
@@ -85,18 +83,11 @@ public class AudioChannel extends Thread {
 							baos.write((byte) b);
 						}
 						byte[] toPlay = baos.toByteArray();
-		                int noise = 0;
 		                for (int i = 0; i < toPlay.length; i++) {
 		                    toPlay[i] *= amplification;
-		                    noise += Math.abs(toPlay[i]);
 		                }
-		                noise *= 2.5;
-		                noise /= toPlay.length;
-		                this.noise = noise;
-		                SoundData soundData = Utils.processSound(toPlay);
-		                db = soundData.getDB();
-		                rms = soundData.getRMS();
-		                System.out.println("Audio=  {ruido: " + noise + ", db: " + db + ", rms: " + rms + "}");
+		                soundData = Utils.processSound(toPlay);
+		                System.out.println("Audio=  {ruido: " + getNoise() + ", db: " + getDB() + ", rms: " + getRMS() + "}");
 						speaker.write(toPlay, 0, toPlay.length);
 					}
 				}

@@ -6,10 +6,7 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.UnknownHostException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.text.DecimalFormat;
-import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Random;
 
@@ -77,7 +74,7 @@ public class Utils {
 		}
 		return bytes + "B";
 	}
-	public static long getFromSacledBytes(String scaled) { // si viene de getBytesScaled es probable que haya perdidas de informaciÃ³n porque este redondea...
+	public static long getFromSacledBytes(String scaled) { // si viene de getBytesScaled es probable que haya perdidas de información porque este redondea...
 		if (scaled.endsWith("TB") || scaled.endsWith("GB") || scaled.endsWith("MB") || scaled.endsWith("KB")) {
 			try {
 				long bytes = Long.valueOf(scaled.substring(0,  scaled.length() - 2));
@@ -104,44 +101,17 @@ public class Utils {
 		BigDecimal bdecRes = bdec.divide(new BigDecimal(b));
 		return bdecRes;
 	}
-	public static SoundData processSound(byte[] buf) {
-		float[] samples = new float[buf.length / 2];
-		int b = buf.length;
-		// convert bytes to samples here
-		for(int i = 0, s = 0; i < b;) {
-			int sample = 0;
-			sample |= buf[i++] & 0xFF; // (reverse these two lines
-			sample |= buf[i++] << 8;   //  if the format is big endian)
-			// normalize to range of +/-1.0f
-			samples[s++] = sample / 32768f;
-		}
-		float rms = 0f;
-		float peak = 0f;
-		for(float sample : samples) {
-			float abs = Math.abs(sample);
-			if(abs > peak) {
-				peak = abs;
-			}
-			rms += sample * sample;
-		}
-		rms = (float)Math.sqrt(rms / samples.length);
-		return new SoundData(peak, calculateRMSLevel(buf));
-	}
-	public static int calculateRMSLevel(byte[] audioData) {
-	    // audioData might be buffered data read from a data line
-	    long lSum = 0;
-	    for (int i = 0; i < audioData.length; i++) {
-	        lSum = lSum + audioData[i];
-	    }
-
-	    double dAvg = lSum / audioData.length;
-
-	    double sumMeanSquare = 0d;
-	    for (int j = 0; j < audioData.length; j++) {
-	        sumMeanSquare = sumMeanSquare + Math.pow(audioData[j] - dAvg, 2d);
-	    }
-
-	    double averageMeanSquare = sumMeanSquare / audioData.length;
-	    return (int) (Math.pow(averageMeanSquare, 0.5d) + 0.5);
+	public static SoundData processSound(byte[] data) {
+		int sum = 0;
+		int noise = 0;
+        for (int i = 0; i < data.length; i++) {
+            sum += data[i] * data[i];
+            noise += Math.abs(data[i]);
+        }
+        noise *= 2.5;
+        noise /= data.length;
+        double rms = Math.sqrt((double) sum / data.length);
+        double db = 20 * Math.log10(rms / 32767) + (97.02716825318605 /* decibelio minimo */);
+		return new SoundData(db, rms, noise);
 	}
 }

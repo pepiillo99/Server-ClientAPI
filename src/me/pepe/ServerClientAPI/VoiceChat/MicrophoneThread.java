@@ -19,9 +19,7 @@ public abstract class MicrophoneThread extends Thread {
 	private AudioFormat audioFormat = new AudioFormat(11025f, 8, 1, true, true); //11.025khz, 8bit, mono, signed, big endian (changes nothing in 8 bit) ~8kb/s
 	private PacketVoiceChatSend lastData;
 	private boolean muted = false;
-	private int noise = 0;
-	private float db;
-	private float rms;
+	private SoundData soundData = new SoundData(0, 0, 0);
 	private int minNoise = 0;
 	private int maxInfoPerPacket = 1024;
 	public MicrophoneThread() throws LineUnavailableException {
@@ -53,13 +51,13 @@ public abstract class MicrophoneThread extends Thread {
 		this.muted = muted;
 	}
 	public int getNoise() {
-		return noise;
+		return soundData.getNoise();
 	}
-	public float getDB() {
-		return db;
+	public double getDB() {
+		return soundData.getDB();
 	}
-	public float getRMS() {
-		return rms;
+	public double getRMS() {
+		return soundData.getRMS();
 	}
 	@Override
 	public void run() {
@@ -69,20 +67,13 @@ public abstract class MicrophoneThread extends Thread {
 				while (mic.available() >= maxInfoPerPacket) {
 					mic.read(data, 0, data.length);
 				}
-                int noise = 0;
                 for (int i = 0; i < data.length; i++) {
                     data[i] *= amplification;
-                    noise += Math.abs(data[i]);
                 }
-                noise *= 2.5;
-                noise /= data.length;
-                this.noise = noise;
-                SoundData soundData = Utils.processSound(data);
-                db = soundData.getDB();
-                rms = soundData.getRMS();
-                System.out.println("Microfono=  {ruido: " + noise + ", db: " + db + ", rms: " + rms + "}");
+                this.soundData = Utils.processSound(data);
+                System.out.println("Microfono=  {ruido: " + getNoise() + ", db: " + getDB() + ", rms: " + getRMS() + "}");
                 Utils.processSound(data);
-                if (noise <= minNoise) {
+                if (getNoise() <= minNoise) {
                 	//send(new PacketVoiceChatSend(new byte[maxInfoPerPacket]));
                 } else {
                 	try {
