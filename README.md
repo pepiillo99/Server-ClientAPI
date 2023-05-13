@@ -68,7 +68,7 @@ public class ClientServer extends ClientConnection {
     }
     @Override
     public void onConnect() {
-        startRead(); // THIS IS MOST IMPORTANT BECAUSE IF YOU NOT USE THIS THE CLIENT NOT START READ THE PACKETS !!!!!!!!!!!
+        System.out.println("IM CONNECTED!");
     }
     @Override
     public void onFailedConnect() {}
