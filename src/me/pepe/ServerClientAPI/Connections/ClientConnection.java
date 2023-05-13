@@ -39,6 +39,7 @@ import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFileReceived;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileSentRequest;
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatReceive;
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatSend;
+import me.pepe.ServerClientAPI.Utils.PacketSentCallback;
 import me.pepe.ServerClientAPI.Utils.PacketUtilities;
 import me.pepe.ServerClientAPI.Utils.Utils;
 import me.pepe.ServerClientAPI.Utils.File.FileReceiver;
@@ -114,8 +115,6 @@ public abstract class ClientConnection {
 			ipC = "Error(Error al coger la ip)";
 			e.printStackTrace();
 		}
-		reconnectKey = new BigInteger(25, Utils.random).toString(32);
-		sendPacket(new PacketGlobalReconnectDefineKey(reconnectKey));
 		lastPinged = System.currentTimeMillis();
 		timeOutThread = new Thread() {
 			@Override
@@ -134,8 +133,18 @@ public abstract class ClientConnection {
 			}
 		};
 		timeOutThread.start();
+		reconnectKey = new BigInteger(25, Utils.random).toString(32);
+		PacketGlobalReconnectDefineKey rdkPacket = new PacketGlobalReconnectDefineKey(reconnectKey);
+		rdkPacket.setSentCallback(new PacketSentCallback() {
+			@Override
+			public void onSent(long miliseconds) {
+				startRead();
+				onConnect();
+				System.out.println("Start read");
+			}			
+		});
 		connectionCompleted = true;
-		onConnect();
+		sendPacket(rdkPacket);
 	}
 	public ClientConnection(String ip, int port, ServerClientAPI packetManager) throws IOException {
 		this.packetManager = packetManager;
@@ -172,7 +181,7 @@ public abstract class ClientConnection {
 					connectionCompleted = true;
 					lastPinged = System.currentTimeMillis();
 					timeOutThread.start();
-					onConnect();
+					startRead();
 				}
 				@Override
 				public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
@@ -361,7 +370,7 @@ public abstract class ClientConnection {
 			e1.printStackTrace();
 		}
 	}
-	public void startRead() {
+	private void startRead() {
 		if (!reading) {
 			readNextPacket();
 		}
@@ -370,6 +379,7 @@ public abstract class ClientConnection {
 	private void send(Packet packet) throws WritePacketException, WritePendingException {
 		if (sendingPacket == null) {
 			sendingPacket = packet;
+			System.out.println("enviando: " + packet.getClass().getName());
 			try {
 				ByteArrayOutputStream output = new ByteArrayOutputStream();
 				ByteArrayOutputStream packetOutput = new ByteArrayOutputStream();
@@ -419,6 +429,9 @@ public abstract class ClientConnection {
 										packetsent++;
 										pendentingSendPacket.remove(packet);
 										if (packet.hasSentCallback()) {
+											if (byteDebug) {
+												System.out.println("Ejecutando callback del packet ");
+											}
 											packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
 										}
 										if (debugMode) {
@@ -611,6 +624,7 @@ public abstract class ClientConnection {
 					if (packet instanceof PacketGlobalReconnectDefineKey) {
 						PacketGlobalReconnectDefineKey defineKey = (PacketGlobalReconnectDefineKey) packet;
 						reconnectKey = defineKey.getKey();
+						onConnect();
 					} else if (packet instanceof PacketGlobalReconnect) {
 						PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
 						if (reconnectPacket.getKey().equals(reconnectKey)) {
