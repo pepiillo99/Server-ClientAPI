@@ -140,7 +140,6 @@ public abstract class ClientConnection {
 			public void onSent(long miliseconds) {
 				startRead();
 				onConnect();
-				System.out.println("Start read");
 			}			
 		});
 		connectionCompleted = true;
@@ -379,7 +378,6 @@ public abstract class ClientConnection {
 	private void send(Packet packet) throws WritePacketException, WritePendingException {
 		if (sendingPacket == null) {
 			sendingPacket = packet;
-			System.out.println("enviando: " + packet.getClass().getName());
 			try {
 				ByteArrayOutputStream output = new ByteArrayOutputStream();
 				ByteArrayOutputStream packetOutput = new ByteArrayOutputStream();
