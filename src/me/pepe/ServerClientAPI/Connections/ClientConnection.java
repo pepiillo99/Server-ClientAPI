@@ -9,6 +9,7 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.AsynchronousSocketChannel;
@@ -395,7 +396,7 @@ public abstract class ClientConnection {
 						PacketUtilities.writeInteger(output.size(), outputSize);
 						ByteBuffer bufSize = ByteBuffer.allocate(8);
 						bufSize.put(outputSize.toByteArray());
-						bufSize.rewind();
+						((Buffer) bufSize).rewind();
 						//bufSize.flip();
 						connection.write(bufSize, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 							@Override
@@ -405,7 +406,7 @@ public abstract class ClientConnection {
 								//System.out.println(bs + " sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
 								ByteBuffer bufPacket = ByteBuffer.allocate(output.size());
 								bufPacket.put(output.toByteArray());
-								bufPacket.flip();
+								((Buffer) bufPacket).flip();
 								if (byteDebug) {
 									log("size sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
 									log("intentando enviar el packet completo");
