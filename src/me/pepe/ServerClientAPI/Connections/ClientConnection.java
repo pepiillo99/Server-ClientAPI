@@ -139,8 +139,8 @@ public abstract class ClientConnection {
 		rdkPacket.setSentCallback(new PacketSentCallback() {
 			@Override
 			public void onSent(long miliseconds) {
-				startRead();
 				onConnect();
+				startRead();
 			}			
 		});
 		connectionCompleted = true;
