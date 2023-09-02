@@ -93,6 +93,9 @@ public abstract class ClientConnection {
 	private HashMap<Integer, AudioChannel> audioChannels = new HashMap<Integer, AudioChannel>();
 	//
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager) {
+		this(connection, packetManager, true);
+	}
+	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager, boolean startRead) {
 		this.connection = connection;
 		this.packetManager = packetManager;
 		this.clientConnectionType = ClientConnectionType.SERVER_TO_CLIENT;
@@ -140,7 +143,9 @@ public abstract class ClientConnection {
 			@Override
 			public void onSent(long miliseconds) {
 				onConnect();
-				startRead();
+				if (startRead) {
+					startRead();
+				}
 			}			
 		});
 		connectionCompleted = true;
@@ -370,7 +375,7 @@ public abstract class ClientConnection {
 			e1.printStackTrace();
 		}
 	}
-	private void startRead() {
+	protected void startRead() {
 		if (!reading) {
 			readNextPacket();
 		}
