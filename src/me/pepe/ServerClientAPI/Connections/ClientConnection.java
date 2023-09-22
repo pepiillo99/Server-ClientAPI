@@ -959,6 +959,9 @@ public abstract class ClientConnection {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+		if (reconnectThread != null && reconnectThread.isAlive()) {
+			reconnectThread.stop();
+		}
 		if (timeOutThread != null && timeOutThread.isAlive()) {
 			timeOutThread.stop();
 		}
