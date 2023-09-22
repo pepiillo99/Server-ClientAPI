@@ -4,8 +4,10 @@ import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 
 import me.pepe.ServerClientAPI.Exceptions.ReadPacketException;
+import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalAskNewConnection;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalDisconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalKick;
+import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalNewConnection;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalPing;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnectDefineKey;
@@ -47,6 +49,8 @@ public class ServerClientAPI {
 	}
 	private void registerPackets() {
 		// GLOBAL PACKETS (0)
+		addPacket(new PacketGlobalNewConnection());
+		addPacket(new PacketGlobalAskNewConnection());
 		addPacket(new PacketGlobalReconnect());
 		addPacket(new PacketGlobalReconnectDefineKey());
 		addPacket(new PacketGlobalPing());

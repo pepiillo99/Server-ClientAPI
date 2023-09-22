@@ -9,13 +9,13 @@ import me.pepe.ServerClientAPI.Exceptions.WritePacketException;
 import me.pepe.ServerClientAPI.Utils.PacketUtilities;
 
 public class PacketGlobalReconnect extends Packet {
-	private String key;
+	private String key = "";
 	public PacketGlobalReconnect(String key) {
-		super(0);
+		super(100);
 		this.key = key;
 	}
 	public PacketGlobalReconnect() {
-		super(0);
+		super(100);
 	}
 	@Override
 	public Packet serialize(ByteArrayInputStream info) throws ReadPacketException {

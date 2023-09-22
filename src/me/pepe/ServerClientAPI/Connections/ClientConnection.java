@@ -27,8 +27,10 @@ import me.pepe.ServerClientAPI.Packet;
 import me.pepe.ServerClientAPI.ServerClientAPI;
 import me.pepe.ServerClientAPI.Exceptions.ReadPacketException;
 import me.pepe.ServerClientAPI.Exceptions.WritePacketException;
+import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalAskNewConnection;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalDisconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalKick;
+import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalNewConnection;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalPing;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnectDefineKey;
@@ -51,6 +53,8 @@ import me.pepe.ServerClientAPI.VoiceChat.MicrophoneThread;
 public abstract class ClientConnection {
 	private ServerClientAPI packetManager;
 	private AsynchronousSocketChannel connection;
+	private String ip;
+	private int port;
 	private ClientConnectionType clientConnectionType = null;
 	private List<Packet> pendentingSendPacket = new ArrayList<Packet>();
 	private long maxPacketSizeSend = Utils.getFromSacledBytes("5KB");
@@ -84,6 +88,10 @@ public abstract class ClientConnection {
 	private Thread timeOutThread;
 	private int packetsent = 0;
 	private int packetReceived = 0;
+	private boolean canReconnect = true;
+	private int reconnectAttempts = 0;
+	private boolean connected = false; // para saber si al desconectar puede reconectar o definitivamente se desconecto
+	private Thread reconnectThread; // thread que define si la conexion caduca en el servidor
 	private HashMap<String, FileSender> filesSending = new HashMap<String, FileSender>();
 	private HashMap<String, FileReceiver> filesReceiver = new HashMap<String, FileReceiver>();
 	// voice chat
@@ -93,9 +101,12 @@ public abstract class ClientConnection {
 	private HashMap<Integer, AudioChannel> audioChannels = new HashMap<Integer, AudioChannel>();
 	//
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager) {
-		this(connection, packetManager, true);
+		this(connection, packetManager, true, true);
 	}
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager, boolean startRead) {
+		this(connection, packetManager, true, true);
+	}
+	protected ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager, boolean createReconnectKey, boolean startRead) {
 		this.connection = connection;
 		this.packetManager = packetManager;
 		this.clientConnectionType = ClientConnectionType.SERVER_TO_CLIENT;
@@ -129,30 +140,49 @@ public abstract class ClientConnection {
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
-					if (isConnected() && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
+					if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
 						System.out.println("Client connection time out! " + reconnectKey);
-						disconnect();
+						dropAndReconnect();
 					}
 				}
 			}
 		};
 		timeOutThread.start();
-		reconnectKey = new BigInteger(25, Utils.random).toString(32);
-		PacketGlobalReconnectDefineKey rdkPacket = new PacketGlobalReconnectDefineKey(reconnectKey);
-		rdkPacket.setSentCallback(new PacketSentCallback() {
-			@Override
-			public void onSent(long miliseconds) {
-				onConnect();
-				if (startRead) {
-					startRead();
-				}
-			}			
-		});
-		connectionCompleted = true;
-		sendPacket(rdkPacket);
+		if (createReconnectKey) {
+			reconnectKey = new BigInteger(25, Utils.random).toString(32);
+			PacketGlobalReconnectDefineKey rdkPacket = new PacketGlobalReconnectDefineKey(reconnectKey);
+			rdkPacket.setSentCallback(new PacketSentCallback() {
+				@Override
+				public void onSent(long miliseconds) {
+					connected = true;
+					onConnect();
+					if (startRead) {
+						startRead();
+					}
+				}			
+			});
+			connectionCompleted = true;
+			sendPacket(rdkPacket);
+		} else {
+			PacketGlobalAskNewConnection rdkPacket = new PacketGlobalAskNewConnection();
+			rdkPacket.setSentCallback(new PacketSentCallback() {
+				@Override
+				public void onSent(long miliseconds) {
+					connected = true;
+					onConnect();
+					if (startRead) {
+						startRead();
+					}
+				}			
+			});
+			connectionCompleted = true;
+			sendPacket(rdkPacket);
+		}
 	}
 	public ClientConnection(String ip, int port, ServerClientAPI packetManager) throws IOException {
 		this.packetManager = packetManager;
+		this.ip = ip;
+		this.port = port;
 		connection = AsynchronousSocketChannel.open();
 		this.clientConnectionType = ClientConnectionType.CLIENT_TO_SERVER;
 		timeOutThread = new Thread() {
@@ -169,12 +199,12 @@ public abstract class ClientConnection {
 							sendPacket(new PacketGlobalPing());
 						} catch (NotYetConnectedException ex) {
 							onFailedConnect();
-							disconnect();
+							dropAndReconnect();
 						}
 					}
-					if (isConnected() && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
+					if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
 						System.out.println("Server connection time out! " + reconnectKey);
-						disconnect();
+						dropAndReconnect();
 					}
 				}
 			}
@@ -185,6 +215,7 @@ public abstract class ClientConnection {
 				public void completed(Void result, AsynchronousSocketChannel attachment) {	
 					connectionCompleted = true;
 					lastPinged = System.currentTimeMillis();
+					sendPacket(new PacketGlobalNewConnection());
 					timeOutThread.start();
 					startRead();
 				}
@@ -217,6 +248,9 @@ public abstract class ClientConnection {
 		}
 	}
 	public void onErrorSend() {}
+	public boolean checkReconnectKey(String key) {
+		return reconnectKey.equals(key);
+	}
 	public int getBytePerSecondSent() {
 		return bytesPerSecondSent;
 	}
@@ -250,7 +284,7 @@ public abstract class ClientConnection {
 	private long getMaxBytesSenderOnFiles() {
 		long max = -1;
 		for (FileSender sender : filesSending.values()) {
-			if (!sender.isFinished() && sender.getBytesPerPacket() < max) {
+			if (!sender.isFinished() && sender.getBytesPerPacket() > max) {
 				max = sender.getBytesPerPacket();
 			}
 		}
@@ -281,7 +315,7 @@ public abstract class ClientConnection {
 	private long getMaxBytesReceiverOnFiles() {
 		long max = -1;
 		for (FileReceiver receiver : filesReceiver.values()) {
-			if (!receiver.isFinished() && receiver.getBytesPerPacket() < max) {
+			if (!receiver.isFinished() && receiver.getBytesPerPacket() > max) {
 				max = receiver.getBytesPerPacket();
 			}
 		}
@@ -304,7 +338,7 @@ public abstract class ClientConnection {
 		if (debugMode) {
 			System.out.println("Enviando packet " + packet.getClass().getName());
 		}
-		if (!isConnected()) { // es probable que se este reconectando?
+		if (!isConnected() || reconnecting) { // es probable que se este reconectando?
 			if (!packet.isIgnorable()) {
 				pendentingSendPacket.add(packet);
 			}
@@ -377,8 +411,12 @@ public abstract class ClientConnection {
 	}
 	protected void startRead() {
 		if (!reading) {
+			reading = true;
 			readNextPacket();
 		}
+	}
+	private void stopRead() {
+		reading = false;
 	}
 	public void log(String s) {}
 	private void send(Packet packet) throws WritePacketException, WritePendingException {
@@ -438,6 +476,9 @@ public abstract class ClientConnection {
 											}
 											packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
 										}
+										if (packet instanceof PacketGlobalDisconnect) {
+											canReconnect = false;
+										}
 										if (debugMode) {
 											System.out.println("Packet enviado en " + (System.currentTimeMillis() - lastTryPacketSent) + " ms");
 											System.out.println("Comprobando si tiene packets pendientes que enviar...");
@@ -479,7 +520,7 @@ public abstract class ClientConnection {
 									@Override
 									public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
 										if (exc instanceof AsynchronousCloseException) {
-											disconnect();
+											dropAndReconnect();
 										}
 										System.out.println("ERROR AL ENVIAR EL PACKET ENTERO " + packet.getClass().getName());
 									}				
@@ -488,7 +529,7 @@ public abstract class ClientConnection {
 							@Override
 							public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
 								if (exc instanceof AsynchronousCloseException) {
-									disconnect();
+									dropAndReconnect();
 								}
 								System.out.println("ERROR AL ENVIAR EL PACKET SIZE");
 							}				
@@ -497,6 +538,7 @@ public abstract class ClientConnection {
 						System.err.println("El packet " + packet.getClass().getName() + " no esta registrado...");
 					}
 				} else {
+					sendingPacket = null;
 					System.err.println("No se ha enviado el packet " + packet.getClass().getSimpleName() + " porque ocupa mas de " + Utils.getBytesScaled(maxPacketSizeSend) + "(" + maxPacketSizeSend + ")" +  " (" + Utils.getBytesScaled(packetOutput.size() + 8) + " (" + (packetOutput.size() + 8) + "bytes))");
 				}
 			} catch (WritePacketException | WritePendingException e) {
@@ -511,7 +553,7 @@ public abstract class ClientConnection {
 			@Override
 			public void completed(Integer result, AsynchronousSocketChannel attachment) {
 				if (result == -1) {
-					disconnect();
+					dropAndReconnect();
 				} else {
 					//System.out.println(attachment.isOpen());
 					/**
@@ -548,7 +590,7 @@ public abstract class ClientConnection {
 								@Override
 								public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
 									if (exc instanceof AsynchronousCloseException) {
-										disconnect();
+										dropAndReconnect();
 									}
 									System.out.println("ERROR AL COGER EL PACKET RECIBIDO");							
 								}        	
@@ -558,13 +600,13 @@ public abstract class ClientConnection {
 						}
 					} catch (ReadPacketException e) {
 						e.printStackTrace();
-						disconnect();
+						dropAndReconnect();
 					}
 				}
 			}
 			@Override
 			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-				disconnect();
+				dropAndReconnect();
 			}        	
 		});
 	}
@@ -588,7 +630,7 @@ public abstract class ClientConnection {
 			@Override
 			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
 				if (exc instanceof AsynchronousCloseException) {
-					disconnect();
+					dropAndReconnect();
 				}
 				System.out.println("ERROR AL COGER EL INCOMPLETO PACKET RECIBIDO");							
 			}        	
@@ -622,12 +664,20 @@ public abstract class ClientConnection {
 			}
 			if (packet != null) {
 				packetReceived++;
+				if (true) {
+					System.out.println("Packet recibido: " + packet.getClass().getName());
+				}
 				packet.setCurrent(current);
 				downPing = System.currentTimeMillis() - packet.getCurrent();
 				if (packet.getPacketToClientType() == 0) {
-					if (packet instanceof PacketGlobalReconnectDefineKey) {
+					if (packet instanceof PacketGlobalAskNewConnection) {
+						if (!connected) {
+							connected = true;						
+						}
+					} else if (packet instanceof PacketGlobalReconnectDefineKey) {
 						PacketGlobalReconnectDefineKey defineKey = (PacketGlobalReconnectDefineKey) packet;
 						reconnectKey = defineKey.getKey();
+						connected = true;
 						onConnect();
 					} else if (packet instanceof PacketGlobalReconnect) {
 						PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
@@ -636,12 +686,19 @@ public abstract class ClientConnection {
 							//reconnect();
 						} else {
 							log("La key reconnect ha fallado... Desconectando cliente...");
-							disconnect();
+							dropAndReconnect();
 						}
 					} else if (packet instanceof PacketGlobalDisconnect) {
-						disconnect();
-					} else if (packet instanceof PacketGlobalKick) {
+						System.out.println("Disconnected by " + (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER ? "server" : "client") );
 						if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
+							canReconnect = false;
+							sendPacket(packet);
+						} else {
+							totalDisconnect();
+						}
+					} else if (packet instanceof PacketGlobalKick) {
+						if (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER) {
+							System.out.println("Kicked by server");
 							disconnect();
 						}
 					} else if (packet instanceof PacketGlobalPing) {
@@ -683,7 +740,7 @@ public abstract class ClientConnection {
 									if (max == -1) {
 										restartMaxPacketSizeReceive();
 									} else {
-										setMaxPacketSizeReceive(max);
+										setMaxPacketSizeReceive(max + 50);
 									}
 									System.out.println("File " + fileReceiver.getFilePath() + " downloaded succesfully in " + fileReceiver.getReceivedTime() + "ms!");
 									onReceiveFile(fileReceiver.getFilePath(), fileReceiver.getFileType(), fileReceiver.getFileLenght());
@@ -703,7 +760,7 @@ public abstract class ClientConnection {
 								if (max == -1) {
 									restartMaxPacketSizeSend();
 								} else {
-									setMaxPacketSizeSend(max);
+									setMaxPacketSizeSend(max + 50);
 								}
 								System.out.println("File " + fileSender.getFilePath() + " enviado completo en " + fileSender.getSentTime() + "ms!");
 							} else {
@@ -756,7 +813,9 @@ public abstract class ClientConnection {
 			e.printStackTrace();
 		} finally {
 			nextPacketSize = 0;
-			readNextPacket();
+			if (reading) {
+				readNextPacket();
+			}
 		}
 	}
 	public String sendFile(String path, String dest) {
@@ -785,31 +844,118 @@ public abstract class ClientConnection {
 		}
 	}
 	public void reconnect(AsynchronousSocketChannel connection) {
+		if (reconnectThread != null) {
+			reconnectThread.stop();
+			reconnectThread = null;
+		}
 		try {
-			if (connection != null && connection.isOpen()) {
-				connection.close();
+			if (this.connection != null && this.connection.isOpen()) {
+				this.connection.close();
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
 		this.connection = connection;
+		startRead();
+		reconnecting = false;
 	}
 	public void dropAndReconnect() {
-		try {
-			if (connection.isOpen()) {
-				connection.close();
-				onDropCanReconnect();
+		if (connected && !reconnecting) {
+			if (canReconnect) {
+				reconnecting = true;
+				try {
+					onDropCanReconnect();
+					if (connection != null && connection.isOpen()) {
+						connection.close();
+						stopRead();
+					}
+					if (clientConnectionType.equals(ClientConnectionType.CLIENT_TO_SERVER)) {
+						if (reconnectAttempts <= 3) {
+							System.out.println("Connection drop, try reconnect in " + (reconnectAttempts*3) + "s attempt " + reconnectAttempts + "/3...");
+							new Thread() {
+								@Override
+								public void run() {
+									try {
+										sleep(reconnectAttempts++*3000);
+										connection = AsynchronousSocketChannel.open();
+										connection.connect(new InetSocketAddress(ip, port), connection, new CompletionHandler<Void, AsynchronousSocketChannel>() {
+											@Override
+											public void completed(Void result, AsynchronousSocketChannel attachment) {
+												lastPinged = System.currentTimeMillis();
+												try {
+													if (sendingPacket != null) {
+														if (!sendingPacket.isIgnorable()) {
+															pendentingSendPacket.add(sendingPacket);
+														}
+														sendingPacket = null;
+													}
+													send(new PacketGlobalReconnect(reconnectKey));
+													System.out.println("Successfully reconnected");
+													reconnectAttempts = 0;
+													reconnecting = false;
+												} catch (WritePendingException | WritePacketException e) {
+													e.printStackTrace();
+												}
+												startRead();
+											}
+											@Override
+											public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
+												System.out.println("Error al conectar con el servidor " + ip + ":" + port + " , intentando denuevo...");
+												reconnecting = false;
+												dropAndReconnect();
+											}
+										});
+									} catch (InterruptedException e) {
+										e.printStackTrace();
+									} catch (IOException e) {
+										e.printStackTrace();
+									}
+								}
+							}.start();
+						} else {
+							System.out.println("Connection drop tried reconnect 3/3, connection finally dropped, disconnecting...");
+							disconnect();
+						}
+					} else {
+						System.out.println("Connection of client dropped, they can reconnect if this take more 30 seconds it will be disconnect.");
+						reconnectThread = new Thread() {
+							@Override
+							public void run() {
+								try {
+									sleep(30000);
+									System.out.println("Connection take more 30 seconds, disconnected.");
+									disconnect();
+								} catch (InterruptedException e) {
+									e.printStackTrace();
+								}
+							}
+						};
+						reconnectThread.start();
+					}
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else {
+				totalDisconnect();
 			}
-		} catch (IOException e) {
-			e.printStackTrace();
 		}
 	}
 	public void disconnect() {
+		if (!reconnecting && connection.isOpen()) {
+			sendPacket(new PacketGlobalDisconnect());
+		} else {
+			totalDisconnect();
+		}
+		
+	}
+	private void totalDisconnect() {
+		connected = false;
+		reconnecting = false;
 		try {
 			if (connection.isOpen()) {
 				connection.close();
-				onDisconnect();
 			}
+			onDisconnect();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -920,4 +1066,9 @@ public abstract class ClientConnection {
 	 * La ID del canal será la misma ID del cliente.
 	 */
 	public void onSpeak(PacketVoiceChatSend packet) {}
+	protected void killClient() {
+		timeOutThread.stop();
+		stopRead();
+		connection = null;
+	}
 }
