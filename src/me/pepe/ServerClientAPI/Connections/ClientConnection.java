@@ -664,7 +664,7 @@ public abstract class ClientConnection {
 			}
 			if (packet != null) {
 				packetReceived++;
-				if (true) {
+				if (debugMode) {
 					System.out.println("Packet recibido: " + packet.getClass().getName());
 				}
 				packet.setCurrent(current);
