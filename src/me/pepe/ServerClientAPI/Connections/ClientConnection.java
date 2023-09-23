@@ -814,7 +814,14 @@ public abstract class ClientConnection {
 		} finally {
 			nextPacketSize = 0;
 			if (reading) {
-				readNextPacket();
+				if (clientConnectionType.equals(ClientConnectionType.SERVER_TO_CLIENT)) { 
+					// si es conexion servidor-cliente y no tiene generada la reconnectkey (es un cliente pendiente, por lo que solo lee un paquete) 
+					if (reconnectKey != null) {
+						readNextPacket();
+					}
+				} else { // si es cliente-servidor lee todo
+					readNextPacket();
+				}
 			}
 		}
 	}
