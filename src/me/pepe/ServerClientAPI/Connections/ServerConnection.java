@@ -42,6 +42,8 @@ public abstract class ServerConnection {
 								} else {
 									killClient();
 								}
+							} else {
+								disconnect();
 							}
 						}
 						@Override

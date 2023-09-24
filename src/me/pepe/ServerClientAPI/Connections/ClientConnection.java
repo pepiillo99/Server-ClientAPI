@@ -248,6 +248,9 @@ public abstract class ClientConnection {
 		}
 	}
 	public void onErrorSend() {}
+	public boolean hasReconnectKey() {
+		return reconnectKey != null && !reconnectKey.isEmpty();
+	}
 	public boolean checkReconnectKey(String key) {
 		return reconnectKey.equals(key);
 	}
@@ -816,7 +819,7 @@ public abstract class ClientConnection {
 			if (reading) {
 				if (clientConnectionType.equals(ClientConnectionType.SERVER_TO_CLIENT)) { 
 					// si es conexion servidor-cliente y no tiene generada la reconnectkey (es un cliente pendiente, por lo que solo lee un paquete) 
-					if (reconnectKey != null) {
+					if (hasReconnectKey()) {
 						readNextPacket();
 					}
 				} else { // si es cliente-servidor lee todo
@@ -867,7 +870,9 @@ public abstract class ClientConnection {
 		reconnecting = false;
 	}
 	public void dropAndReconnect() {
-		if (connected && !reconnecting) {
+		if (hasReconnectKey()) {
+			disconnect();
+		} else if (connected && !reconnecting) {
 			if (canReconnect) {
 				reconnecting = true;
 				try {
