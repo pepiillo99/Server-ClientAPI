@@ -870,7 +870,7 @@ public abstract class ClientConnection {
 		reconnecting = false;
 	}
 	public void dropAndReconnect() {
-		if (hasReconnectKey()) {
+		if (!hasReconnectKey()) {
 			disconnect();
 		} else if (connected && !reconnecting) {
 			if (canReconnect) {
