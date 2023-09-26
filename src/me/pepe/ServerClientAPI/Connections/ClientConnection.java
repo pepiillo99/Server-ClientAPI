@@ -698,8 +698,8 @@ public abstract class ClientConnection {
 					} else if (packet instanceof PacketGlobalReconnect) {
 						PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
 						if (reconnectPacket.getKey().equals(reconnectKey)) {
-							log("La key reconnect es correcta, reconectando conexián del cliente...");
-							//reconnect();
+							log("La key reconnect es correcta, reconectando conexión del cliente...");
+							onReconnect();
 						} else {
 							log("La key reconnect ha fallado... Desconectando cliente...");
 							dropAndReconnect();
@@ -918,6 +918,7 @@ public abstract class ClientConnection {
 													System.out.println("Successfully reconnected");
 													reconnectAttempts = 0;
 													reconnecting = false;
+													onReconnect();
 												} catch (WritePendingException | WritePacketException e) {
 													e.printStackTrace();
 												}
