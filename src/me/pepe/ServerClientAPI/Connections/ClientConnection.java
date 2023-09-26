@@ -695,15 +695,6 @@ public abstract class ClientConnection {
 						reconnectKey = defineKey.getKey();
 						connected = true;
 						onConnect();
-					} else if (packet instanceof PacketGlobalReconnect) {
-						PacketGlobalReconnect reconnectPacket = (PacketGlobalReconnect) packet;
-						if (reconnectPacket.getKey().equals(reconnectKey)) {
-							log("La key reconnect es correcta, reconectando conexión del cliente...");
-							onReconnect();
-						} else {
-							log("La key reconnect ha fallado... Desconectando cliente...");
-							dropAndReconnect();
-						}
 					} else if (packet instanceof PacketGlobalDisconnect) {
 						System.out.println("Disconnected by " + (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER ? "server" : "client") );
 						if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
@@ -881,6 +872,7 @@ public abstract class ClientConnection {
 		this.connection = connection;
 		startRead();
 		reconnecting = false;
+		onReconnect();
 	}
 	public void dropAndReconnect() {
 		if (!hasReconnectKey()) {
