@@ -131,23 +131,6 @@ public abstract class ClientConnection {
 			e.printStackTrace();
 		}
 		lastPinged = System.currentTimeMillis();
-		timeOutThread = new Thread() {
-			@Override
-			public void run() {
-				while (true) {
-					try {
-						sleep(1000);
-					} catch (InterruptedException e) {
-						e.printStackTrace();
-					}
-					if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
-						System.out.println("Client connection time out! " + reconnectKey);
-						dropAndReconnect();
-					}
-				}
-			}
-		};
-		timeOutThread.start();
 		if (createReconnectKey) {
 			reconnectKey = new BigInteger(25, Utils.random).toString(32);
 			PacketGlobalReconnectDefineKey rdkPacket = new PacketGlobalReconnectDefineKey(reconnectKey);
@@ -163,7 +146,36 @@ public abstract class ClientConnection {
 			});
 			connectionCompleted = true;
 			sendPacket(rdkPacket);
+			timeOutThread = new Thread() {
+				@Override
+				public void run() {
+					while (true) {
+						try {
+							sleep(1000);
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+						if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
+							System.out.println("Client connection time out! " + reconnectKey);
+							dropAndReconnect();
+						}
+					}
+				}
+			};
 		} else {
+			timeOutThread = new Thread() {
+				@Override
+				public void run() {
+					try {
+						sleep(1000);
+						if (!hasReconnectKey()) {
+							System.out.println("Pendenting connection dropped by timeout");
+							totalDisconnect();
+						}
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}}
+			};
 			PacketGlobalAskNewConnection rdkPacket = new PacketGlobalAskNewConnection();
 			rdkPacket.setSentCallback(new PacketSentCallback() {
 				@Override
@@ -178,6 +190,7 @@ public abstract class ClientConnection {
 			connectionCompleted = true;
 			sendPacket(rdkPacket);
 		}
+		timeOutThread.start();
 	}
 	public ClientConnection(String ip, int port, ServerClientAPI packetManager) throws IOException {
 		this.packetManager = packetManager;
