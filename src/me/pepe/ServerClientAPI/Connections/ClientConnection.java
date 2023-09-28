@@ -379,14 +379,19 @@ public abstract class ClientConnection {
 				System.out.println("Se intentará forzar el envio del packet...");
 				try {
 					send(packet);
+					System.out.println("Packet enviado de forma forzada...");
 				} catch (WritePacketException | WritePendingException e) {
 					System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente está escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
 				}
-				System.out.println("Packet enviado de forma forzada...");
 			} else {
 				if ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0) {
 					onErrorSend();
 					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. ¿El proceso de send esta parado? forzando el envio del packet pendiente");
+					if (sendingPacket != null) {
+						System.out.println("Intentando enviar el packet: " + sendingPacket.getClass().getName());
+					} else {
+						System.out.println("El packet pendiente parta enviar es nullo...");
+					}
 					System.out.println(lastTryPacketSent + " - " + System.currentTimeMillis() + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis())  + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0));
 					try {
 						if (byteDebug) {
