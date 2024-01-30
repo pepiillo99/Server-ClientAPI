@@ -35,7 +35,7 @@ ServerClientAPI scAPI = new ServerClientAPI();
 scAPI.addPacket(new HelloWorldPacket());
 ```
 
-And the most important, you need run the server to send and receibe the information packets...
+The most important, you need run the server to send and receibe the information packets...
 
 ```java
 List<ClientServer> clients = new ArrayList<ClientServer>; // its ideally you use HashMap ;)
@@ -88,7 +88,7 @@ public class ClientServer extends ClientConnection {
 }
 ```
 
-In a recent update I implemented the possibility of being able to send files, which makes the maximum number of bytes per packet to be edited according to the client/server's needs.
+There is also the possibility of being able to send files, which means that the maximum number of bytes per packet can be edited according to the needs of the client/server.
 
 In order to receive files we must first accept the file on the client/server adding this code on ClientConnection class:
 
@@ -108,5 +108,16 @@ This way the client/server will accept any file it receives. The arguments to th
 While sending a file you can continue sending packages normally. Although you have to keep in mind that if the number of bytes per packet is too high it could cause delays in client/server communication, I always advise leaving it by default (1MB) until you develop a system that calculates the most optimal number of bytes per packet. for each client and connections.
 
 To send a file we will simply use the ```sendFile(String path, String dest, long bytesPerPacket(not recommended use))``` method of the ClientConnection class. This will return a code which the system uses to identify the shipment. We also have the method ```changeBytesPerPacketOfSender(String code, long bytes)``` which allows us to change the bytes per packet sent when sending a file (which I previously commented recommend leaving by default).
+
+When making a connection between devices locally this can be quite a tedious job, since the device's IP can sometimes change depending on the network mask. To do this, I have developed a system to detect open local IPs with a specific port in our local connection. To use this function we will use the following code:
+
+```java
+new CalculatorRedMaskOpenned(new RedMaskFindedCallback<String>() {
+    @Override
+    public void done(String ip, Exception exception) {
+        System.out.println("Local IP openned finded: " + ip);
+    }           
+}, 999);
+````
 
 With this we will have the possibility of both connecting the client and sending information between both :)
