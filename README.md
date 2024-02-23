@@ -118,6 +118,29 @@ new CalculatorRedMaskOpenned(new RedMaskFindedCallback<String>() {
         System.out.println("Local IP openned finded: " + ip);
     }           
 }, 999);
-````
+```
+
+It also contains a part which allows voice communication between several clients by recording the voice of the user's microphone and sharing it with the connected clients (customizable) with the same connection system. To do this, first on the server side we must define what will happen when the client speaks in the voice chat by adding the onSpeak(...) method in the server client. Here we have an example to send all clients to listen to each other.
+
+```java
+@Override
+public void onSpeak(PacketVoiceChatSend packet) {
+    for (ClientServer c : clients) { // all client include you
+        c.getValue().sendPacket(packet.toSend(c.getKey()));
+    }
+}
+```
+
+Next, in the client part, we must add the following code so that it can listen to clients who speak to it and be able to speak. In this case, it is activated when the client connects but it can be done to the user's liking depending on the use that is going to be given to it.
+
+```java
+@Override
+public void onConnect() {
+    setCanEarn(true);
+    setCanSpeak(true);
+}
+```
+
+After enabling the client to speak and listen, we must open the client's microphone so that it begins to listen and send the information about what the client speaks through the microphone, we will use the following code ``openMicrophone();`` taking into account the LineUnavailableException exception, regarding the microphone, we also have the following method ``isMicrophoneOpenned();`` that allows us to check if the microphone is open.
 
 With this we will have the possibility of both connecting the client and sending information between both :)
