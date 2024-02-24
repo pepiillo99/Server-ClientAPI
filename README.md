@@ -141,6 +141,16 @@ public void onConnect() {
 }
 ```
 
-After enabling the client to speak and listen, we must open the client's microphone so that it begins to listen and send the information about what the client speaks through the microphone, we will use the following code ``openMicrophone();`` taking into account the LineUnavailableException exception, regarding the microphone, we also have the following method ``isMicrophoneOpenned();`` that allows us to check if the microphone is open.
+So that the client could listen correctly to the rest of the clients, create a channel system which is identified by an `int`, we must define this in the client by adding the following method
+
+```java
+
+@Override
+public int getChannelID() {
+    return yourchannelid...;
+}
+```
+
+After allowing the client to speak and listen and setting up the channel system, we must open the client's microphone so that it begins to listen and send the information about what the client speaks through the microphone, we will use the following code ``openMicrophone();`` taking into account the LineUnavailableException exception, regarding the microphone, we also have the following method ``isMicrophoneOpenned();`` that allows us to check if the microphone is open.
 
 With this we will have the possibility of both connecting the client and sending information between both :)
