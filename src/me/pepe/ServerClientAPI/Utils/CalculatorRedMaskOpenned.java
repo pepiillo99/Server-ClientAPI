@@ -57,9 +57,7 @@ public class CalculatorRedMaskOpenned extends Thread {
 								callback.done(ipSoll, null);
 							}
 							@Override
-							public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-								System.out.println("Error al conectar con el servidor " + ipSoll + ":" + port);
-							}
+							public void failed(Throwable exc, AsynchronousSocketChannel attachment) { /* Not connection */ }
 						});
 					} catch (IOException e) {
 						e.printStackTrace();
@@ -68,6 +66,20 @@ public class CalculatorRedMaskOpenned extends Thread {
 				}
 				if (counterFinished) {
 					mask[counter]++;
+					while (true) {
+						if (mask[counter] > 255) {
+							mask[counter] = 0;
+							counter--;
+							if (counter < firstPos) {
+								counterFinished = true;
+								finished = true;
+								break;
+							}
+							mask[counter] = mask[counter] + 1;
+						} else {
+							break;
+						}
+					}
 				} else {
 					if (counter < firstPos) {
 						counterFinished = true;
