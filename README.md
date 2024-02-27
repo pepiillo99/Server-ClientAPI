@@ -112,12 +112,17 @@ To send a file we will simply use the ```sendFile(String path, String dest, long
 When making a connection between devices locally this can be quite a tedious job, since the device's IP can sometimes change depending on the network mask. To do this, I have developed a system to detect open local IPs with a specific port in our local connection. To use this function we will use the following code:
 
 ```java
-new CalculatorRedMaskOpenned(new RedMaskFindedCallback<String>() {
+new CalculatorNetworkMaskOpenned(new NetworkMaskFindedCallback() {
     @Override
     public void done(String ip, Exception exception) {
         System.out.println("Local IP openned finded: " + ip);
     }           
-}, 999);
+}, 777, new NetworkMaskDoneCallback() {
+    @Override
+    public void done(int checks) {
+        System.out.println("Tried search local IP openned with " + checks + " checks");
+    }           
+});
 ```
 
 It also contains a part which allows voice communication between several clients by recording the voice of the user's microphone and sharing it with the connected clients (customizable) with the same connection system. To do this, first on the server side we must define what will happen when the client speaks in the voice chat by adding the onSpeak(...) method in the server client. Here we have an example to send all clients to listen to each other.
