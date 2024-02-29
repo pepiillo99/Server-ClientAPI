@@ -33,82 +33,89 @@ public class CalculatorNetworkMaskOpenned extends Thread {
 					}
 				}
 			}
-			boolean finished = false;
-			while (!finished) {
-				boolean counterFinished = false;
-				int counter = 3;
-				while (!counterFinished) {
-					boolean print = true;
-					if (mask[counter] > 255) {
-						mask[counter] = 0;
-						counter--;
-						print = false;
-					} else {
-						counterFinished = true;
-					}
-					if (print) {
-						String ipSol = "";
-						for (int i = 0; i < 4; i++) {
-							if (firstPos > i) {
-								ipSol = ipSol + (ipSol.equals("") ? "" : ".") + ip[i] ;
-							} else {
-								ipSol = ipSol + (ipSol.equals("") ? "" : ".") + mask[i];
+			if (firstPos != -1) {
+				boolean finished = false;
+				while (!finished) {
+					boolean counterFinished = false;
+					int counter = 3;
+					while (!counterFinished) {
+						boolean print = true;
+						if (mask[counter] > 255) {
+							mask[counter] = 0;
+							counter--;
+							print = false;
+						} else {
+							counterFinished = true;
+						}
+						if (print) {
+							String ipSol = "";
+							for (int i = 0; i < 4; i++) {
+								if (firstPos > i) {
+									ipSol = ipSol + (ipSol.equals("") ? "" : ".") + ip[i] ;
+								} else {
+									ipSol = ipSol + (ipSol.equals("") ? "" : ".") + mask[i];
+								}
 							}
+							try {
+								String ipSoll = ipSol;
+								AsynchronousSocketChannel connection = AsynchronousSocketChannel.open();
+								connection.connect(new InetSocketAddress(ipSoll, port), connection, new CompletionHandler<Void, AsynchronousSocketChannel>() {
+									@Override
+									public void completed(Void result, AsynchronousSocketChannel attachment) {
+										findCallback.done(ipSoll, null);
+										connected();
+									}
+									@Override
+									public void failed(Throwable exc, AsynchronousSocketChannel attachment) { 
+										/* Not connection */
+										connected();
+									}
+								});
+							} catch (IOException e) {
+								e.printStackTrace();
+							}
+							total++;
 						}
-						try {
-							String ipSoll = ipSol;
-							AsynchronousSocketChannel connection = AsynchronousSocketChannel.open();
-							connection.connect(new InetSocketAddress(ipSoll, port), connection, new CompletionHandler<Void, AsynchronousSocketChannel>() {
-								@Override
-								public void completed(Void result, AsynchronousSocketChannel attachment) {
-									findCallback.done(ipSoll, null);
-									connected();
-								}
-								@Override
-								public void failed(Throwable exc, AsynchronousSocketChannel attachment) { 
-									/* Not connection */
-									connected();
-								}
-							});
-						} catch (IOException e) {
-							e.printStackTrace();
-						}
-						total++;
-					}
-					if (counterFinished) {
-						mask[counter]++;
-						while (true) {
-							if (mask[counter] > 255) {
-								mask[counter] = 0;
-								counter--;
-								if (counter < firstPos) {
-									counterFinished = true;
-									finished = true;
+						if (counterFinished) {
+							mask[counter]++;
+							while (true) {
+								if (mask[counter] > 255) {
+									mask[counter] = 0;
+									counter--;
+									if (counter < firstPos) {
+										counterFinished = true;
+										finished = true;
+										break;
+									}
+									mask[counter] = mask[counter] + 1;
+								} else {
 									break;
 								}
-								mask[counter] = mask[counter] + 1;
-							} else {
-								break;
 							}
-						}
-					} else {
-						if (counter < firstPos) {
-							counterFinished = true;
-							finished = true;
+						} else {
+							if (counter < firstPos) {
+								counterFinished = true;
+								finished = true;
+							}
 						}
 					}
 				}
-			}
-			System.out.println("Disponibles mascaras de red: " + total);
-			try {
-				sleep(5000);
-				System.out.println("Conexiones posibles timeout...");
-				doneCallback.done(total);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
+				System.out.println("Disponibles mascaras de red: " + total);
+				try {
+					sleep(5000);
+					System.out.println("Conexiones posibles timeout...");
+					doneCallback.done(total);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			} else {
+				System.err.println("Mascara de red no disponible, imposible buscar una posible conexion remota local...");
+				if (doneCallback != null) {
+					doneCallback.done(0);
+				}
 			}
 		} else {
-			System.err.println("Mascara de red no disponible, imposible buscar una posible conexion local...");
+			System.err.println("Mascara de red no disponible, imposible buscar una posible conexion remota local...");
 			if (doneCallback != null) {
 				doneCallback.done(0);
 			}

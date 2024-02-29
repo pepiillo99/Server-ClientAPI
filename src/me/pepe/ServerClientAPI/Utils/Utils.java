@@ -30,7 +30,7 @@ public class Utils {
                 while (addresses.hasMoreElements()) {
                     InetAddress addr = addresses.nextElement();
                     if (addr instanceof Inet4Address) {
-                    	System.out.println(addr.getHostAddress() +  " - " + iface.getDisplayName());
+                    	//System.out.println(addr.getHostAddress() +  " - " + iface.getDisplayName());
                         ip = addr.getHostAddress();
                     }
                 }
@@ -55,7 +55,7 @@ public class Utils {
 			int oct4 = ((byte) (shft&0x000000ff)) & 0xff;
 			return new int[] {oct1, oct2, oct3, oct4};
 		} catch(UnknownHostException | SocketException  e) {
-			System.out.println("Error: "+e);
+			e.printStackTrace();
 		}
 		return null;
 	}
