@@ -32,7 +32,7 @@ public abstract class ServerConnection {
 						public void onFailedConnect() {}
 						@Override
 						public void onRecibe(Packet packet) {
-							System.out.println("packet recibido como pendiente " + packet.getClass().getName());
+							//System.out.println("packet recibido como pendiente " + packet.getClass().getName());
 							if (packet instanceof PacketGlobalNewConnection) {
 								ServerConnection.this.onConnect(clientConnection);
 								killClient();
