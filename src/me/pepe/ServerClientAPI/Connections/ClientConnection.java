@@ -42,6 +42,7 @@ import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFileReceived;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileSentRequest;
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatReceive;
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatSend;
+import me.pepe.ServerClientAPI.Utils.AwaitAnswerCallback;
 import me.pepe.ServerClientAPI.Utils.PacketSentCallback;
 import me.pepe.ServerClientAPI.Utils.PacketUtilities;
 import me.pepe.ServerClientAPI.Utils.Utils;
@@ -100,6 +101,8 @@ public abstract class ClientConnection {
 	private MicrophoneThread micThread;
 	private HashMap<Integer, AudioChannel> audioChannels = new HashMap<Integer, AudioChannel>();
 	//
+	private int answerCounter = 1;
+	private HashMap<Integer, AwaitAnswerCallback> awaitAnswers = new HashMap<Integer, AwaitAnswerCallback>();
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager) {
 		this(connection, packetManager, true, true);
 	}
@@ -210,6 +213,7 @@ public abstract class ClientConnection {
 					if (isConnected()) {
 						try {
 							sendPacket(new PacketGlobalPing());
+							checkTimeOutAwaitAnswers();
 						} catch (NotYetConnectedException ex) {
 							onFailedConnect();
 							dropAndReconnect();
@@ -453,6 +457,7 @@ public abstract class ClientConnection {
 						PacketUtilities.writeInteger(packetID, output);
 						PacketUtilities.writeInteger(packet.getPacketToClientType(), output);
 						PacketUtilities.writeLong(System.currentTimeMillis(), output);
+						PacketUtilities.writeInteger(packet.hasAwaitAnswerCallback() ? packet.getAwaitAnswerCallback().getID() : packet.getPendentingAnswer(), output);
 						for (byte b : packetOutput.toByteArray()) {
 							output.write(b);
 						}
@@ -496,6 +501,9 @@ public abstract class ClientConnection {
 												System.out.println("Ejecutando callback del packet ");
 											}
 											packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
+										}
+										if (packet.hasAwaitAnswerCallback()) {
+											awaitAnswers.put(packet.getAwaitAnswerCallback().getID(), packet.getAwaitAnswerCallback());
 										}
 										if (packet instanceof PacketGlobalDisconnect) {
 											canReconnect = false;
@@ -672,6 +680,7 @@ public abstract class ClientConnection {
 			packetID = PacketUtilities.getInteger(input);
 			int cliendID = PacketUtilities.getInteger(input);
 			current = PacketUtilities.getLong(input);
+			int awaitAnswer = PacketUtilities.getInteger(input);
 			Packet packet = null;
 			try {
 				packet = packetManager.getPacket(packetID, input);
@@ -688,134 +697,140 @@ public abstract class ClientConnection {
 				if (debugMode) {
 					System.out.println("Packet recibido: " + packet.getClass().getName());
 				}
+				packet.setPendentingAnswer(awaitAnswer);
 				packet.setCurrent(current);
 				downPing = System.currentTimeMillis() - packet.getCurrent();
-				if (packet.getPacketToClientType() == 0) {
-					if (packet instanceof PacketGlobalAskNewConnection) {
-						if (!connected) {
-							connected = true;						
-						}
-					} else if (packet instanceof PacketGlobalReconnectDefineKey) {
-						PacketGlobalReconnectDefineKey defineKey = (PacketGlobalReconnectDefineKey) packet;
-						reconnectKey = defineKey.getKey();
-						connected = true;
-						onConnect();
-					} else if (packet instanceof PacketGlobalDisconnect) {
-						System.out.println("Disconnected by " + (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER ? "server" : "client") );
-						if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
-							canReconnect = false;
-							sendPacket(packet);
-						} else {
-							totalDisconnect();
-						}
-					} else if (packet instanceof PacketGlobalKick) {
-						if (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER) {
-							System.out.println("Kicked by server");
-							disconnect();
-						}
-					} else if (packet instanceof PacketGlobalPing) {
-						lastPinged = System.currentTimeMillis();
-						if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
-							sendPacket(packet);
-						} else {
-							//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
-						}
-					} else if (packet instanceof PacketFileCanSent) {
-						PacketFileCanSent solicitudePacket = (PacketFileCanSent) packet;
-						boolean request = canReceiveFile(solicitudePacket.getPath(), solicitudePacket.getFileType(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght());
-						if (request) {
-							setMaxPacketSizeReceive(solicitudePacket.getBytesPerPacket() + 50);
-							filesReceiver.put(solicitudePacket.getCode(), new FileReceiver(solicitudePacket.getCode(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght(), solicitudePacket.getPath()));
-						}
-						sendPacket(new PacketFileSentRequest(solicitudePacket.getCode(), request));
-					} else if (packet instanceof PacketFileSentRequest) {
-						PacketFileSentRequest requestPacket = (PacketFileSentRequest) packet;
-						if (requestPacket.canSent()) {
-							if (filesSending.containsKey(requestPacket.getCode())) {
-								FileSender fileSender = filesSending.get(requestPacket.getCode());
-								setMaxPacketSizeSend(fileSender.getBytesPerPacket() + 50);
-								sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
-							} else {
-								System.out.println("Se acepto el envio del archivo " + requestPacket.getCode() + " pero el FileSender no estaba creado!");
-							}
-						} else {
-							System.out.println("No se acepto el envio del archivo " + requestPacket.getCode());
-						}
-					} else if (packet instanceof PacketFilePartOfFile) {
-						PacketFilePartOfFile partOfFilePacket = (PacketFilePartOfFile) packet;
-						if (filesReceiver.containsKey(partOfFilePacket.getCode())) {
-							FileReceiver fileReceiver = filesReceiver.get(partOfFilePacket.getCode());
-							if (fileReceiver.received(partOfFilePacket.getBytes())) {
-								sendPacket(new PacketFilePartOfFileReceived(fileReceiver.getCode(), partOfFilePacket.getBytes().length));
-								if (fileReceiver.isFinished()) {
-									long max = getMaxBytesReceiverOnFiles();
-									if (max == -1) {
-										restartMaxPacketSizeReceive();
-									} else {
-										setMaxPacketSizeReceive(max + 50);
-									}
-									System.out.println("File " + fileReceiver.getFilePath() + " downloaded succesfully in " + fileReceiver.getReceivedTime() + "ms!");
-									onReceiveFile(fileReceiver.getFilePath(), fileReceiver.getFileType(), fileReceiver.getFileLenght());
-								}
-							} else {
-								System.out.println("Se envió la cancelación del envio del archivo " + fileReceiver.getCode());
-								sendPacket(new PacketFileCancelSend(fileReceiver.getCode()));
-							}
-						}
-					} else if (packet instanceof PacketFilePartOfFileReceived) {
-						PacketFilePartOfFileReceived partReceivedPacket = (PacketFilePartOfFileReceived) packet;
-						if (filesSending.containsKey(partReceivedPacket.getCode())) {
-							FileSender fileSender = filesSending.get(partReceivedPacket.getCode());
-							filesSending.get(partReceivedPacket.getCode()).sent(partReceivedPacket.getBytesLenght());
-							if (fileSender.isFinished()) {
-								long max = getMaxBytesSenderOnFiles();
-								if (max == -1) {
-									restartMaxPacketSizeSend();
-								} else {
-									setMaxPacketSizeSend(max + 50);
-								}
-								System.out.println("File " + fileSender.getFilePath() + " enviado completo en " + fileSender.getSentTime() + "ms!");
-							} else {
-								sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
-							}
-						} else {
-							System.out.println("No se pudo enviar el archivo porque no existe el sender");
-						}
-					} else if (packet instanceof PacketFileCancelSend) {
-						PacketFileCancelSend cancelPacket = (PacketFileCancelSend) packet;
-						if (filesSending.containsKey(cancelPacket.getCode())) {
-							System.out.println("Se ha cancelado el envio del archivo " + filesSending.get(cancelPacket.getCode()).getFilePath() + " con el codigo " + cancelPacket.getCode());
-							filesSending.remove(cancelPacket.getCode());
-						} else {
-							System.out.println("Se ha intentando cancelar el archivo con el codigo " + cancelPacket.getCode() + " pero este sender no existia");
-						}
-					} else if (packet instanceof PacketFileCanChangeBytesPerPacket) {
-						PacketFileCanChangeBytesPerPacket canChange = (PacketFileCanChangeBytesPerPacket) packet;
-						if (filesSending.containsKey(canChange.getCode())) {
-							setMaxPacketSizeSend(canChange.getBytes() + 50);
-							filesSending.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
-							System.out.println("Se ha cambiado el numero de bytes por packet del sender " + canChange.getCode());
-						} else if (filesReceiver.containsKey(canChange.getCode())) {
-							if (canChangeBytesPerPacket(canChange.getCode(), filesReceiver.get(canChange.getCode()).getFilePath(), canChange.getBytes())) {
-								setMaxPacketSizeReceive(canChange.getBytes() + 50);
-								filesReceiver.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
-								sendPacket(canChange);
-								System.out.println("Se ha aceptado el cambio de bytes per packet del receiver " + canChange.getCode());
-							} else {
-								System.out.println("Se ha denegado el cambio de bytes per packet del receiver " + canChange.getCode());
-							}
-						} else {
-							System.out.println("No se ha podido cambiar el numro de bytes por paquete en el envio de packet " + canChange.getCode() + " no se ha encontrado su sender");
-						}
-					} else if (packet instanceof PacketVoiceChatReceive) {
-						PacketVoiceChatReceive vcReceive = (PacketVoiceChatReceive) packet;
-						earn(vcReceive);
-					} else if (packet instanceof PacketVoiceChatSend) {
-						PacketVoiceChatSend vcSend = (PacketVoiceChatSend) packet;
-						onSpeak(vcSend);
-					}
+				if (awaitAnswer != 0 && awaitAnswers.containsKey(awaitAnswer)) {
+					awaitAnswers.get(awaitAnswer).onAnswer(packet);
+					awaitAnswers.remove(awaitAnswer);
 				} else {
-					onRecibe(packet);
+					if (packet.getPacketToClientType() == 0) {
+						if (packet instanceof PacketGlobalAskNewConnection) {
+							if (!connected) {
+								connected = true;						
+							}
+						} else if (packet instanceof PacketGlobalReconnectDefineKey) {
+							PacketGlobalReconnectDefineKey defineKey = (PacketGlobalReconnectDefineKey) packet;
+							reconnectKey = defineKey.getKey();
+							connected = true;
+							onConnect();
+						} else if (packet instanceof PacketGlobalDisconnect) {
+							System.out.println("Disconnected by " + (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER ? "server" : "client") );
+							if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
+								canReconnect = false;
+								sendPacket(packet);
+							} else {
+								totalDisconnect();
+							}
+						} else if (packet instanceof PacketGlobalKick) {
+							if (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER) {
+								System.out.println("Kicked by server");
+								disconnect();
+							}
+						} else if (packet instanceof PacketGlobalPing) {
+							lastPinged = System.currentTimeMillis();
+							if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
+								sendPacket(packet);
+							} else {
+								//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
+							}
+						} else if (packet instanceof PacketFileCanSent) {
+							PacketFileCanSent solicitudePacket = (PacketFileCanSent) packet;
+							boolean request = canReceiveFile(solicitudePacket.getPath(), solicitudePacket.getFileType(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght());
+							if (request) {
+								setMaxPacketSizeReceive(solicitudePacket.getBytesPerPacket() + 50);
+								filesReceiver.put(solicitudePacket.getCode(), new FileReceiver(solicitudePacket.getCode(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght(), solicitudePacket.getPath()));
+							}
+							sendPacket(new PacketFileSentRequest(solicitudePacket.getCode(), request));
+						} else if (packet instanceof PacketFileSentRequest) {
+							PacketFileSentRequest requestPacket = (PacketFileSentRequest) packet;
+							if (requestPacket.canSent()) {
+								if (filesSending.containsKey(requestPacket.getCode())) {
+									FileSender fileSender = filesSending.get(requestPacket.getCode());
+									setMaxPacketSizeSend(fileSender.getBytesPerPacket() + 50);
+									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
+								} else {
+									System.out.println("Se acepto el envio del archivo " + requestPacket.getCode() + " pero el FileSender no estaba creado!");
+								}
+							} else {
+								System.out.println("No se acepto el envio del archivo " + requestPacket.getCode());
+							}
+						} else if (packet instanceof PacketFilePartOfFile) {
+							PacketFilePartOfFile partOfFilePacket = (PacketFilePartOfFile) packet;
+							if (filesReceiver.containsKey(partOfFilePacket.getCode())) {
+								FileReceiver fileReceiver = filesReceiver.get(partOfFilePacket.getCode());
+								if (fileReceiver.received(partOfFilePacket.getBytes())) {
+									sendPacket(new PacketFilePartOfFileReceived(fileReceiver.getCode(), partOfFilePacket.getBytes().length));
+									if (fileReceiver.isFinished()) {
+										long max = getMaxBytesReceiverOnFiles();
+										if (max == -1) {
+											restartMaxPacketSizeReceive();
+										} else {
+											setMaxPacketSizeReceive(max + 50);
+										}
+										System.out.println("File " + fileReceiver.getFilePath() + " downloaded succesfully in " + fileReceiver.getReceivedTime() + "ms!");
+										onReceiveFile(fileReceiver.getFilePath(), fileReceiver.getFileType(), fileReceiver.getFileLenght());
+									}
+								} else {
+									System.out.println("Se envió la cancelación del envio del archivo " + fileReceiver.getCode());
+									sendPacket(new PacketFileCancelSend(fileReceiver.getCode()));
+								}
+							}
+						} else if (packet instanceof PacketFilePartOfFileReceived) {
+							PacketFilePartOfFileReceived partReceivedPacket = (PacketFilePartOfFileReceived) packet;
+							if (filesSending.containsKey(partReceivedPacket.getCode())) {
+								FileSender fileSender = filesSending.get(partReceivedPacket.getCode());
+								filesSending.get(partReceivedPacket.getCode()).sent(partReceivedPacket.getBytesLenght());
+								if (fileSender.isFinished()) {
+									long max = getMaxBytesSenderOnFiles();
+									if (max == -1) {
+										restartMaxPacketSizeSend();
+									} else {
+										setMaxPacketSizeSend(max + 50);
+									}
+									System.out.println("File " + fileSender.getFilePath() + " enviado completo en " + fileSender.getSentTime() + "ms!");
+								} else {
+									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
+								}
+							} else {
+								System.out.println("No se pudo enviar el archivo porque no existe el sender");
+							}
+						} else if (packet instanceof PacketFileCancelSend) {
+							PacketFileCancelSend cancelPacket = (PacketFileCancelSend) packet;
+							if (filesSending.containsKey(cancelPacket.getCode())) {
+								System.out.println("Se ha cancelado el envio del archivo " + filesSending.get(cancelPacket.getCode()).getFilePath() + " con el codigo " + cancelPacket.getCode());
+								filesSending.remove(cancelPacket.getCode());
+							} else {
+								System.out.println("Se ha intentando cancelar el archivo con el codigo " + cancelPacket.getCode() + " pero este sender no existia");
+							}
+						} else if (packet instanceof PacketFileCanChangeBytesPerPacket) {
+							PacketFileCanChangeBytesPerPacket canChange = (PacketFileCanChangeBytesPerPacket) packet;
+							if (filesSending.containsKey(canChange.getCode())) {
+								setMaxPacketSizeSend(canChange.getBytes() + 50);
+								filesSending.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
+								System.out.println("Se ha cambiado el numero de bytes por packet del sender " + canChange.getCode());
+							} else if (filesReceiver.containsKey(canChange.getCode())) {
+								if (canChangeBytesPerPacket(canChange.getCode(), filesReceiver.get(canChange.getCode()).getFilePath(), canChange.getBytes())) {
+									setMaxPacketSizeReceive(canChange.getBytes() + 50);
+									filesReceiver.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
+									sendPacket(canChange);
+									System.out.println("Se ha aceptado el cambio de bytes per packet del receiver " + canChange.getCode());
+								} else {
+									System.out.println("Se ha denegado el cambio de bytes per packet del receiver " + canChange.getCode());
+								}
+							} else {
+								System.out.println("No se ha podido cambiar el numro de bytes por paquete en el envio de packet " + canChange.getCode() + " no se ha encontrado su sender");
+							}
+						} else if (packet instanceof PacketVoiceChatReceive) {
+							PacketVoiceChatReceive vcReceive = (PacketVoiceChatReceive) packet;
+							earn(vcReceive);
+						} else if (packet instanceof PacketVoiceChatSend) {
+							PacketVoiceChatSend vcSend = (PacketVoiceChatSend) packet;
+							onSpeak(vcSend);
+						}
+					} else {
+						onRecibe(packet);
+					}
 				}
 			} else {
 				System.err.println("Packet recibido con ID " + packetID + " no registrado...");
@@ -1092,6 +1107,18 @@ public abstract class ClientConnection {
 	 * La ID del canal será la misma ID del cliente.
 	 */
 	public void onSpeak(PacketVoiceChatSend packet) {}
+	public int getNextAwaitAnswerID() {
+		return answerCounter++;
+	}
+	private void checkTimeOutAwaitAnswers() {
+		ArrayList<AwaitAnswerCallback> cloned = new ArrayList<AwaitAnswerCallback>(awaitAnswers.values());
+		for (AwaitAnswerCallback aac : cloned) {
+			if (aac.isTimeOut()) {
+				aac.onTimeOut();
+				awaitAnswers.remove(aac.getID());
+			}
+		}
+	}
 	protected void killClient() {
 		timeOutThread.stop();
 		stopRead();
