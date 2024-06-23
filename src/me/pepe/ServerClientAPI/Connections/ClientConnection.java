@@ -627,7 +627,7 @@ public abstract class ClientConnection {
 						} else {
 							System.err.println("No se ha leido el siguiente packet porque ocupa mas de " + Utils.getBytesScaled(maxPacketSizeReceive) + "(" + maxPacketSizeReceive + ")" +  " (" + Utils.getBytesScaled(nextPacketSize + 8) + " (" + (nextPacketSize + 8) + "bytes))");
 						}
-					} catch (ReadPacketException e) {
+					} catch (Exception e) {
 						//e.printStackTrace();
 						System.out.println("Error al leer el packet recibido");
 						dropAndReconnect();
