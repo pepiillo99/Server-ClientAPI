@@ -73,11 +73,11 @@ public abstract class ClientConnection {
 	private long lastPacketSent = 0;
 	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizá los bytes por segundo
 	// b/s Received
-	private int bytesPerSecondReceived = 0;
-	private int newbytesPerSecondReceived = 0;	
+	private long bytesPerSecondReceived = 0;
+	private long newbytesPerSecondReceived = 0;	
 	// b/s sent
-	private int bytesPerSecondSent = 0;
-	private int newbytesPerSecondSent = 0;
+	private long bytesPerSecondSent = 0;
+	private long newbytesPerSecondSent = 0;
 	private long bytesSent = 0;
 	private long bytesReceived = 0;
 	public boolean byteDebug = false;
@@ -271,10 +271,10 @@ public abstract class ClientConnection {
 	public boolean checkReconnectKey(String key) {
 		return reconnectKey.equals(key);
 	}
-	public int getBytePerSecondSent() {
+	public long getBytePerSecondSent() {
 		return bytesPerSecondSent;
 	}
-	public int getBytePerSecondReceived() {
+	public long getBytePerSecondReceived() {
 		return bytesPerSecondReceived;
 	}
 	public long getBytesSent() {
@@ -735,6 +735,7 @@ public abstract class ClientConnection {
 							} else {
 								//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
 							}
+							onPing();
 						} else if (packet instanceof PacketFileCanSent) {
 							PacketFileCanSent solicitudePacket = (PacketFileCanSent) packet;
 							boolean request = canReceiveFile(solicitudePacket.getPath(), solicitudePacket.getFileType(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght());
@@ -1041,6 +1042,7 @@ public abstract class ClientConnection {
 	public int getPacketReceived() {
 		return packetReceived;
 	}
+	public void onPing() {}
 	public boolean canReceiveFile(String dest, String fileType, long bytesPerPacket, long fileLenght) {
 		return false;
 	}
