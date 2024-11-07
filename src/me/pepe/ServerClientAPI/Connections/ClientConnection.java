@@ -856,8 +856,8 @@ public abstract class ClientConnection {
 			}
 		}
 	}
-	private void onSentFilePart(FileSender fileSender) {}
-	private void onReceibeFilePart(FileReceiver fileReceiver) {}
+	public void onSentFilePart(FileSender fileSender) {}
+	public void onReceibeFilePart(FileReceiver fileReceiver) {}
 	public String sendFile(String path, String dest) {
 		return sendFile(path, dest, Utils.getFromSacledBytes("1MB"));
 	}
