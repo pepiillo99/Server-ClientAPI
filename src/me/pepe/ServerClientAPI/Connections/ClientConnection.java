@@ -763,6 +763,7 @@ public abstract class ClientConnection {
 								FileReceiver fileReceiver = filesReceiver.get(partOfFilePacket.getCode());
 								if (fileReceiver.received(partOfFilePacket.getBytes())) {
 									sendPacket(new PacketFilePartOfFileReceived(fileReceiver.getCode(), partOfFilePacket.getBytes().length));
+									onReceibeFilePart(fileReceiver);
 									if (fileReceiver.isFinished()) {
 										long max = getMaxBytesReceiverOnFiles();
 										if (max == -1) {
@@ -782,7 +783,8 @@ public abstract class ClientConnection {
 							PacketFilePartOfFileReceived partReceivedPacket = (PacketFilePartOfFileReceived) packet;
 							if (filesSending.containsKey(partReceivedPacket.getCode())) {
 								FileSender fileSender = filesSending.get(partReceivedPacket.getCode());
-								filesSending.get(partReceivedPacket.getCode()).sent(partReceivedPacket.getBytesLenght());
+								fileSender.sent(partReceivedPacket.getBytesLenght());
+								onSentFilePart(fileSender);
 								if (fileSender.isFinished()) {
 									long max = getMaxBytesSenderOnFiles();
 									if (max == -1) {
@@ -854,6 +856,8 @@ public abstract class ClientConnection {
 			}
 		}
 	}
+	private void onSentFilePart(FileSender fileSender) {}
+	private void onReceibeFilePart(FileReceiver fileReceiver) {}
 	public String sendFile(String path, String dest) {
 		return sendFile(path, dest, Utils.getFromSacledBytes("1MB"));
 	}
