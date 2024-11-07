@@ -2,6 +2,7 @@ package me.pepe.ServerClientAPI.Connections;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.Inet4Address;
@@ -741,7 +742,7 @@ public abstract class ClientConnection {
 							boolean request = canReceiveFile(solicitudePacket.getPath(), solicitudePacket.getFileType(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght());
 							if (request) {
 								setMaxPacketSizeReceive(solicitudePacket.getBytesPerPacket() + 50);
-								filesReceiver.put(solicitudePacket.getCode(), new FileReceiver(solicitudePacket.getCode(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght(), solicitudePacket.getPath()));
+								filesReceiver.put(solicitudePacket.getCode(), new FileReceiver(solicitudePacket.getCode(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght(), new File("").getAbsolutePath() + "/" + solicitudePacket.getPath()));
 							}
 							sendPacket(new PacketFileSentRequest(solicitudePacket.getCode(), request));
 						} else if (packet instanceof PacketFileSentRequest) {

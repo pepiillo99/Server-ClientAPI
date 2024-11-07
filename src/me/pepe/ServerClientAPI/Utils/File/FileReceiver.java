@@ -39,6 +39,7 @@ public class FileReceiver {
 			//throw new IllegalArgumentException("File already exists " + filePath);
 		} else {
 			try {
+				new File(filePath.replace(new File(filePath).getName(), "")).mkdirs();
 				fos = new FileOutputStream(filePath);
 				bos = new BufferedOutputStream(fos);				
 			} catch (FileNotFoundException e) {
