@@ -18,7 +18,7 @@ public class FileReceiver {
 	private long startTime, finishTime;
 	private long bytesPerPacket = 0;
 	private long lastInformed = 0;
-	private long lastReceived = 0;
+	private long lastReceived = System.currentTimeMillis();
 	private long timeToInform = 0;
 	public FileReceiver(String code, long bytesPerPacket, long fileLenght, String filePath) {
 		this.code = code;

@@ -66,7 +66,8 @@ public abstract class ClientConnection {
 	private int nextPacketSize;
 	private long downPing = 0;
 	private boolean reading = false;
-	private ByteBuffer incompletePacket;
+	private ByteBuffer readIncompletePacket;
+	private ByteBuffer writeIncompletePacket;
 	private String ipC = "";
 	public boolean debugMode = false;
 	private boolean connectionCompleted = false; // first connection is completed?
@@ -495,56 +496,13 @@ public abstract class ClientConnection {
 										checkNeedUpdateBytesPerSecond();
 										newbytesPerSecondSent += bufPacket.array().length;
 										bytesSent += bufPacket.array().length;
-										packetsent++;
-										pendentingSendPacket.remove(packet);
-										if (packet.hasSentCallback()) {
-											if (byteDebug) {
-												System.out.println("Ejecutando callback del packet ");
-											}
-											packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
-										}
-										if (packet.hasAwaitAnswerCallback()) {
-											awaitAnswers.put(packet.getAwaitAnswerCallback().getID(), packet.getAwaitAnswerCallback());
-										}
-										if (packet instanceof PacketGlobalDisconnect) {
-											canReconnect = false;
-										}
-										if (debugMode) {
-											System.out.println("Packet enviado en " + (System.currentTimeMillis() - lastTryPacketSent) + " ms");
-											System.out.println("Comprobando si tiene packets pendientes que enviar...");
-										}
-										lastTryPacketSent = 0;
-										if (!pendentingSendPacket.isEmpty()) {
-											Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
-											if (debugMode) {
-												System.out.println("Proximo packet pendiente " + nextPacket.getClass().getName() + " para enviar");
-											}
-											if (nextPacket != null) {
-												try {
-													lastTryPacketSent = System.currentTimeMillis();
-													if (byteDebug) {
-														log("send by nextPacket");
-													}
-													sendingPacket = null;
-													send(nextPacket);
-													if (debugMode) {
-														System.out.println("Enviando correctamente, desactivando debugmode");
-														debugMode = false;
-													}
-												} catch (WritePacketException | WritePendingException e) {
-													tryResend(nextPacket);
-												}
-											} else {
-												System.out.println("Ha fallado el packet, se estaba intentando enviar un packet nullo? pendentingSendPacket: " + pendentingSendPacket.size());
-												System.out.println("Para asegurar la conexión, se ha eliminado este packet de la lista de packets pendientes...");
-												pendentingSendPacket.remove(nextPacket);
-												sendingPacket = null;
-											}
+										//System.out.println("Packet sent " + bufPacket.position() + " " + output.size() +" " + result + " ");
+										//System.out.println((bufPacket.position() < output.size()) + " " + bufPacket.position() + "-" +  output.size());
+										if (bufPacket.position() < output.size()) {
+											writeIncompletePacket = bufPacket;
+											writeIncompletePacket(packet);
 										} else {
-											if (debugMode) {
-												System.out.println("No hay packets pendientes que enviar...");
-											}
-											sendingPacket = null;
+											sent(packet);
 										}
 									}
 									@Override
@@ -575,6 +533,85 @@ public abstract class ClientConnection {
 				System.out.println("Error al escribir " + packet.getClass().getName());
 				throw e;
 			}		
+		}
+	}
+	private void writeIncompletePacket(Packet packet) {
+		//System.out.println("Packet incompleto leido, queda por leer " + (nextPacketSize - incompletePacket.position()) + " bytes");
+		int prePosition = writeIncompletePacket.position();
+		connection.write(writeIncompletePacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+			@Override
+			public void completed(Integer result, AsynchronousSocketChannel attachment) {
+				//System.out.println((writeIncompletePacket.position()) + " total de " + writeIncompletePacket.limit());
+				int writed = writeIncompletePacket.position() - prePosition;
+				checkNeedUpdateBytesPerSecond();
+				newbytesPerSecondSent += writed;
+				bytesSent += writed;
+				if (writeIncompletePacket.position() < writeIncompletePacket.limit()) {
+					writeIncompletePacket(packet);
+				} else {
+					sent(packet);
+				}
+			}
+			@Override
+			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
+				if (exc instanceof AsynchronousCloseException) {
+					dropAndReconnect();
+				}
+				System.out.println("ERROR AL ESCRIBIR EL INCOMPLETO PACKET PARA ENVIAR");							
+			}        	
+		});
+	}
+	private void sent(Packet packet) {
+		packetsent++;
+		pendentingSendPacket.remove(packet);
+		if (packet.hasSentCallback()) {
+			if (byteDebug) {
+				System.out.println("Ejecutando callback del packet ");
+			}
+			packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
+		}
+		if (packet.hasAwaitAnswerCallback()) {
+			awaitAnswers.put(packet.getAwaitAnswerCallback().getID(), packet.getAwaitAnswerCallback());
+		}
+		if (packet instanceof PacketGlobalDisconnect) {
+			canReconnect = false;
+		}
+		if (debugMode) {
+			System.out.println("Packet enviado en " + (System.currentTimeMillis() - lastTryPacketSent) + " ms");
+			System.out.println("Comprobando si tiene packets pendientes que enviar...");
+		}
+		lastTryPacketSent = 0;
+		if (!pendentingSendPacket.isEmpty()) {
+			Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
+			if (debugMode) {
+				System.out.println("Proximo packet pendiente " + nextPacket.getClass().getName() + " para enviar");
+			}
+			if (nextPacket != null) {
+				try {
+					lastTryPacketSent = System.currentTimeMillis();
+					if (byteDebug) {
+						log("send by nextPacket");
+					}
+					sendingPacket = null;
+					send(nextPacket);
+					if (debugMode) {
+						System.out.println("Enviando correctamente, desactivando debugmode");
+						debugMode = false;
+					}
+				} catch (WritePacketException | WritePendingException e) {
+					tryResend(nextPacket);
+				}
+			} else {
+				System.out.println("Ha fallado el packet, se estaba intentando enviar un packet nullo? pendentingSendPacket: " + pendentingSendPacket.size());
+				System.out.println("Para asegurar la conexión, se ha eliminado este packet de la lista de packets pendientes...");
+				pendentingSendPacket.remove(nextPacket);
+				sendingPacket = null;
+			}
+		} else {
+			if (debugMode) {
+				System.out.println("No hay packets pendientes que enviar...");
+			}
+			sendingPacket = null;
 		}
 	}
 	private void readNextPacket() {
@@ -611,7 +648,7 @@ public abstract class ClientConnection {
 									bytesReceived += bufPacket.position();
 									//System.out.println(bs + " Received fully " + bufPacket.position() + " " + bufPacket.limit() + " " + bufPacket.capacity() + " " + nextPacketSize);
 									if (bufPacket.position() < nextPacketSize) {
-										incompletePacket = bufPacket;
+										readIncompletePacket = bufPacket;
 										readIncompletePacket();
 									} else {
 										read(bufPacket);
@@ -643,19 +680,19 @@ public abstract class ClientConnection {
 	}
 	private void readIncompletePacket() {
 		//System.out.println("Packet incompleto leido, queda por leer " + (nextPacketSize - incompletePacket.position()) + " bytes");
-		int prePosition = incompletePacket.position();
-		connection.read(incompletePacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+		int prePosition = readIncompletePacket.position();
+		connection.read(readIncompletePacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 			@Override
 			public void completed(Integer result, AsynchronousSocketChannel attachment) {
 				//System.out.println((incompletePacket.position()) + " total de " + nextPacketSize);
-				int readed = incompletePacket.position() - prePosition;
+				int readed = readIncompletePacket.position() - prePosition;
 				checkNeedUpdateBytesPerSecond();
 				newbytesPerSecondReceived += readed;
 				bytesReceived += readed;
-				if (incompletePacket.position() < nextPacketSize) {
+				if (readIncompletePacket.position() < nextPacketSize) {
 					readIncompletePacket();
 				} else {
-					read(incompletePacket);
+					read(readIncompletePacket);
 				}
 			}
 			@Override
