@@ -95,6 +95,8 @@ public abstract class ClientConnection {
 	private int reconnectAttempts = 0;
 	private boolean connected = false; // para saber si al desconectar puede reconectar o definitivamente se desconecto
 	private Thread reconnectThread; // thread que define si la conexion caduca en el servidor
+	private long maxTimePerPacketOnSendFiled = 500;
+	private boolean lastPacketSendFileChangedByteAmount = false;
 	private HashMap<String, FileSender> filesSending = new HashMap<String, FileSender>();
 	private HashMap<String, FileReceiver> filesReceiver = new HashMap<String, FileReceiver>();
 	// voice chat
@@ -821,7 +823,30 @@ public abstract class ClientConnection {
 							PacketFilePartOfFileReceived partReceivedPacket = (PacketFilePartOfFileReceived) packet;
 							if (filesSending.containsKey(partReceivedPacket.getCode())) {
 								FileSender fileSender = filesSending.get(partReceivedPacket.getCode());
-								fileSender.sent(partReceivedPacket.getBytesLenght());
+								long diff = fileSender.sent(partReceivedPacket.getBytesLenght());
+								System.out.println("Se detecto un envio con una diferencia de " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
+								if (diff < maxTimePerPacketOnSendFiled) {
+									if (!lastPacketSendFileChangedByteAmount) {
+										double porcent = ((double) maxTimePerPacketOnSendFiled/diff) * 100;
+										long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
+										if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
+											System.out.println("El nuevo envio subió +" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
+											sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
+											lastPacketSendFileChangedByteAmount = true;
+										}
+									} else {
+										System.out.println("el envio anteerior se cambio " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
+										lastPacketSendFileChangedByteAmount = false;
+									}
+								} else if (diff >= maxTimePerPacketOnSendFiled + 150) {
+									double porcent = ((double) (maxTimePerPacketOnSendFiled + 150)/diff) * 100;
+									long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
+									if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
+										System.out.println("El nuevo envio bajó -" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
+										fileSender.setBytesPerPacket(newBytesPerPacket);
+										sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
+									}
+								}
 								onSentFilePart(fileSender);
 								if (fileSender.isFinished()) {
 									long max = getMaxBytesSenderOnFiles();
@@ -848,17 +873,17 @@ public abstract class ClientConnection {
 						} else if (packet instanceof PacketFileCanChangeBytesPerPacket) {
 							PacketFileCanChangeBytesPerPacket canChange = (PacketFileCanChangeBytesPerPacket) packet;
 							if (filesSending.containsKey(canChange.getCode())) {
-								setMaxPacketSizeSend(canChange.getBytes() + 50);
 								filesSending.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
-								System.out.println("Se ha cambiado el numero de bytes por packet del sender " + canChange.getCode());
+								setMaxPacketSizeSend(canChange.getBytes() + 50);
+								System.out.println("Se ha cambiado el numero de bytes por packet del sender " + canChange.getCode() + " a " + canChange.getBytes() + "(" + Utils.getBytesScaled(canChange.getBytes()) + ")");
 							} else if (filesReceiver.containsKey(canChange.getCode())) {
 								if (canChangeBytesPerPacket(canChange.getCode(), filesReceiver.get(canChange.getCode()).getFilePath(), canChange.getBytes())) {
-									setMaxPacketSizeReceive(canChange.getBytes() + 50);
 									filesReceiver.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
+									setMaxPacketSizeReceive(canChange.getBytes() + 50);
 									sendPacket(canChange);
-									System.out.println("Se ha aceptado el cambio de bytes per packet del receiver " + canChange.getCode());
+									System.out.println("Se ha aceptado el cambio de bytes per packet del receiver " + canChange.getCode() + " a " + (canChange.getBytes() + 50) + "(" + Utils.getBytesScaled(canChange.getBytes() + 50) + ")");
 								} else {
-									System.out.println("Se ha denegado el cambio de bytes per packet del receiver " + canChange.getCode());
+									System.out.println("Se ha denegado el cambio de bytes per packet del receiver " + canChange.getCode() + " a " + (canChange.getBytes() + 50) + "(" + Utils.getBytesScaled(canChange.getBytes() + 50) + ")");
 								}
 							} else {
 								System.out.println("No se ha podido cambiar el numro de bytes por paquete en el envio de packet " + canChange.getCode() + " no se ha encontrado su sender");

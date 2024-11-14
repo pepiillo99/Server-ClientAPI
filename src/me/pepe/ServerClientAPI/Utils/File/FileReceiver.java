@@ -35,8 +35,6 @@ public class FileReceiver {
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
 			}
-		
-			//throw new IllegalArgumentException("File already exists " + filePath);
 		} else {
 			try {
 				new File(filePath.replace(new File(filePath).getName(), "")).mkdirs();

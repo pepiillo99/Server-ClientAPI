@@ -17,9 +17,7 @@ public class FileSender {
 	private long lastInformed = 0;
 	private long lastSent = 0;
 	private long timeToInform = 0;
-	/*
-	 * default sent 1MB per packet im tested and its ideally sent 25MB per packet :)
-	 */
+	// hacer que al reconectar continue enviando paquetes (si el ultimo packet no lo recibio deberá volver atras en el read para enviar la parte no recibida)
 	public FileSender(String code, String filePath, long bytesPerPacket) {
 		this(code, new File(filePath), bytesPerPacket);
 	}
@@ -81,16 +79,18 @@ public class FileSender {
 		}
 		return null;
 	}
-	public void sent(long lenght) {
+	public long sent(long lenght) {
+		long diff = System.currentTimeMillis() - lastSent;
 		sent += lenght;
 		if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
 			lastInformed = System.currentTimeMillis();
-			System.out.println(Utils.getBytesScaled(sent) + "(" + sent + ") enviado de " + Utils.getBytesScaled(fileLenght) + "(" + fileLenght + ") - " + getPorcentSent() + "% - " + code + " " + (System.currentTimeMillis() - lastSent) + "ms de diferencia entre paquetes");
+			System.out.println(Utils.getBytesScaled(sent) + "(" + sent + ") enviado de " + Utils.getBytesScaled(fileLenght) + "(" + fileLenght + ") - " + getPorcentSent() + "% - " + code + " " + diff + "ms de diferencia entre paquetes");
 		}
 		lastSent = System.currentTimeMillis();
 		if (isFinished()) {
 			finishTime = System.currentTimeMillis();
 		}
+		return diff;
 	}
 	public boolean isFinished() {
 		return sent == fileLenght;
