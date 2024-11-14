@@ -290,13 +290,6 @@ public abstract class ClientConnection {
 	public long getMaxPacketSizeSend() {
 		return maxPacketSizeSend;
 	}
-	public void setMaxPacketSizeSend(long maxPacketSize, boolean changeDefault) {
-		this.maxPacketSizeSend = maxPacketSize;
-		System.out.println("Max packet size changed to " + Utils.getBytesScaled(maxPacketSize) + " change default: " + changeDefault);
-		if (changeDefault) {
-			this.defaultMaxPacketSizeSend = maxPacketSize;
-		}
-	}
 	private void setMaxPacketSizeSend(long maxPacketSize) {
 		long max = getMaxBytesSenderOnFiles();
 		if (maxPacketSize < max) {
@@ -314,19 +307,12 @@ public abstract class ClientConnection {
 		}
 		return max;
 	}
-	public void restartMaxPacketSizeReceive() {
+	private void restartMaxPacketSizeReceive() {
 		this.maxPacketSizeReceive = defaultMaxPacketSizeReceive;
 		System.out.println("Max packet size to receive restarted to " + Utils.getBytesScaled(maxPacketSizeSend));
 	}
 	public long getMaxPacketSizeReceive() {
 		return maxPacketSizeReceive;
-	}
-	public void setMaxPacketSizeReceive(long maxPacketSize, boolean changeDefault) {
-		this.maxPacketSizeReceive = maxPacketSize;
-		System.out.println("Max packet size changed to " + Utils.getBytesScaled(maxPacketSize) + " change default: " + changeDefault);
-		if (changeDefault) {
-			this.defaultMaxPacketSizeSend = maxPacketSize;
-		}
 	}
 	private void setMaxPacketSizeReceive(long maxPacketSize) {
 		long max = getMaxBytesReceiverOnFiles();
@@ -345,7 +331,7 @@ public abstract class ClientConnection {
 		}
 		return max;
 	}
-	public void restartMaxPacketSizeSend() {
+	private void restartMaxPacketSizeSend() {
 		this.maxPacketSizeSend = defaultMaxPacketSizeSend;
 		System.out.println("Max packet size to send restarted to " + Utils.getBytesScaled(maxPacketSizeSend));
 	}
