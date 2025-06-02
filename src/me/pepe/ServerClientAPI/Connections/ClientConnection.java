@@ -570,7 +570,8 @@ public abstract class ClientConnection {
 		}
 		lastTryPacketSent = 0;
 		if (!pendentingSendPacket.isEmpty()) {
-			Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
+			//Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
+			Packet nextPacket = pendentingSendPacket.get(0);
 			if (debugMode) {
 				System.out.println("Proximo packet pendiente " + nextPacket.getClass().getName() + " para enviar");
 			}
