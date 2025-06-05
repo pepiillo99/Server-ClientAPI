@@ -729,7 +729,10 @@ public abstract class ClientConnection {
 				packet.setCurrent(current);
 				downPing = System.currentTimeMillis() - packet.getCurrent();
 				if (awaitAnswer != 0 && awaitAnswers.containsKey(awaitAnswer)) {
-					awaitAnswers.get(awaitAnswer).onAnswer(packet);
+					AwaitAnswerCallback awaitAnswerCallback = awaitAnswers.get(awaitAnswer);
+					if (awaitAnswerCallback != null && awaitAnswerCallback.isCorrectPacket(packet)) {
+						awaitAnswerCallback.onAnswer(packet);
+					}
 					awaitAnswers.remove(awaitAnswer);
 				} else {
 					if (packet.getPacketToClientType() == 0) {

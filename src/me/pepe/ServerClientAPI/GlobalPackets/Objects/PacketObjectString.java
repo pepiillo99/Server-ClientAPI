@@ -1,0 +1,34 @@
+package me.pepe.ServerClientAPI.GlobalPackets.Objects;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+
+import me.pepe.ServerClientAPI.Packet;
+import me.pepe.ServerClientAPI.Exceptions.ReadPacketException;
+import me.pepe.ServerClientAPI.Exceptions.WritePacketException;
+import me.pepe.ServerClientAPI.Utils.PacketUtilities;
+
+public class PacketObjectString extends Packet {
+	private String object;
+	public PacketObjectString() {
+		super(1);
+	}
+	public PacketObjectString(String object) {
+		super(1);
+		this.object = object;
+	}
+	@Override
+	public Packet serialize(ByteArrayInputStream info) throws ReadPacketException {
+		String object = PacketUtilities.getString(info);
+		return new PacketObjectString(object);
+	}
+
+	@Override
+	public ByteArrayOutputStream deserialize(ByteArrayOutputStream toInfo) throws WritePacketException {
+		PacketUtilities.writeString(object, toInfo);
+		return toInfo;
+	}
+	public String getObject() {
+		return object;
+	}
+}

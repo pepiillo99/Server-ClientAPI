@@ -17,6 +17,10 @@ import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileCancelSend;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFile;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFilePartOfFileReceived;
 import me.pepe.ServerClientAPI.GlobalPackets.File.PacketFileSentRequest;
+import me.pepe.ServerClientAPI.GlobalPackets.Objects.PacketObjectBoolean;
+import me.pepe.ServerClientAPI.GlobalPackets.Objects.PacketObjectInteger;
+import me.pepe.ServerClientAPI.GlobalPackets.Objects.PacketObjectLong;
+import me.pepe.ServerClientAPI.GlobalPackets.Objects.PacketObjectString;
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChannelClosed;
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatReceive;
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatSend;
@@ -65,5 +69,11 @@ public class ServerClientAPI {
 		addPacket(new PacketVoiceChannelClosed());
 		addPacket(new PacketVoiceChatReceive());
 		addPacket(new PacketVoiceChatSend());
+		
+		// OBJECT PACKETS
+		addPacket(new PacketObjectBoolean());
+		addPacket(new PacketObjectString());
+		addPacket(new PacketObjectInteger());
+		addPacket(new PacketObjectLong());
 	}
 }
