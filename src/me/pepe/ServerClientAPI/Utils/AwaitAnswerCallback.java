@@ -30,7 +30,7 @@ public abstract class AwaitAnswerCallback {
 		return timeout;
 	}
 	public boolean isTimeOut() {
-		return (answerTime + 5000) - System.currentTimeMillis() <= 0;
+		return (answerTime + timeout) - System.currentTimeMillis() <= 0;
 	}
 	public void setExpectedPacket(Class<? extends Packet> expectedPacketClass) {
 		this.expectedPacketClass = expectedPacketClass;

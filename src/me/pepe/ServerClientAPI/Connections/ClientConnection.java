@@ -762,6 +762,7 @@ public abstract class ClientConnection {
 							lastPinged = System.currentTimeMillis();
 							if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
 								sendPacket(packet);
+								checkTimeOutAwaitAnswers();
 							} else {
 								//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
 							}
