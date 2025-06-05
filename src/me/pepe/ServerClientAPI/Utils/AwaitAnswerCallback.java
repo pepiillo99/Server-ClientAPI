@@ -7,7 +7,7 @@ public abstract class AwaitAnswerCallback {
 	private int id;
 	private long timeout = 5000;
 	private long answerTime = 0;
-	private Class<Packet> expectedPacketClass;
+	private Class<? extends Packet> expectedPacketClass;
 	public AwaitAnswerCallback(ClientConnection clientConnection) {
 		this(clientConnection, 5000, null);
 	}
@@ -32,7 +32,7 @@ public abstract class AwaitAnswerCallback {
 	public boolean isTimeOut() {
 		return (answerTime + 5000) - System.currentTimeMillis() <= 0;
 	}
-	public void setExpectedPacket(Class<Packet> expectedPacketClass) {
+	public void setExpectedPacket(Class<? extends Packet> expectedPacketClass) {
 		this.expectedPacketClass = expectedPacketClass;
 	}
 	public boolean isCorrectPacket(Packet packet) {
