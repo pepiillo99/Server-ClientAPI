@@ -159,6 +159,7 @@ public abstract class ClientConnection {
 					while (true) {
 						try {
 							sleep(1000);
+							checkTimeOutAwaitAnswers();
 						} catch (InterruptedException e) {
 							e.printStackTrace();
 						}
@@ -175,13 +176,19 @@ public abstract class ClientConnection {
 				public void run() {
 					try {
 						sleep(1000);
+						checkTimeOutAwaitAnswers();
 						if (!hasReconnectKey()) {
 							System.out.println("Pendenting connection dropped by timeout");
 							totalDisconnect();
 						}
 					} catch (InterruptedException e) {
 						e.printStackTrace();
-					}}
+					}
+					if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
+						System.out.println("Client connection time out! " + reconnectKey);
+						dropAndReconnect();
+					}
+				}
 			};
 			PacketGlobalAskNewConnection rdkPacket = new PacketGlobalAskNewConnection();
 			rdkPacket.setSentCallback(new PacketSentCallback() {
@@ -211,13 +218,13 @@ public abstract class ClientConnection {
 				while (true) {
 					try {
 						sleep(1000);
+						checkTimeOutAwaitAnswers();
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
 					if (isConnected()) {
 						try {
 							sendPacket(new PacketGlobalPing());
-							checkTimeOutAwaitAnswers();
 						} catch (NotYetConnectedException ex) {
 							onFailedConnect();
 							dropAndReconnect();
@@ -762,7 +769,6 @@ public abstract class ClientConnection {
 							lastPinged = System.currentTimeMillis();
 							if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
 								sendPacket(packet);
-								checkTimeOutAwaitAnswers();
 							} else {
 								//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
 							}
@@ -1071,6 +1077,11 @@ public abstract class ClientConnection {
 			channel.stop();
 		}
 		audioChannels.clear();
+		ArrayList<AwaitAnswerCallback> cloned = new ArrayList<AwaitAnswerCallback>(awaitAnswers.values());
+		for (AwaitAnswerCallback aac : cloned) {
+			aac.onTimeOut();
+			awaitAnswers.remove(aac.getID());
+		}
 	}
 	public boolean isConnected() {
 		return connection != null && connection.isOpen() && connectionCompleted;
