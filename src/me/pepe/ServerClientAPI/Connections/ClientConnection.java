@@ -355,6 +355,9 @@ public abstract class ClientConnection {
 		if (debugMode) {
 			System.out.println("Enviando packet " + packet.getClass().getName());
 		}
+		if (packet.hasAwaitAnswerCallback()) {
+			awaitAnswers.put(packet.getAwaitAnswerCallback().getID(), packet.getAwaitAnswerCallback());
+		}
 		if (!isConnected() || reconnecting) { // es probable que se este reconectando?
 			if (!packet.isIgnorable()) {
 				pendentingSendPacket.add(packet);
@@ -564,9 +567,6 @@ public abstract class ClientConnection {
 				System.out.println("Ejecutando callback del packet ");
 			}
 			packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
-		}
-		if (packet.hasAwaitAnswerCallback()) {
-			awaitAnswers.put(packet.getAwaitAnswerCallback().getID(), packet.getAwaitAnswerCallback());
 		}
 		if (packet instanceof PacketGlobalDisconnect) {
 			canReconnect = false;
@@ -1063,11 +1063,10 @@ public abstract class ClientConnection {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		if (reconnectThread != null && reconnectThread.isAlive()) {
-			reconnectThread.stop();
-		}
-		if (timeOutThread != null && timeOutThread.isAlive()) {
-			timeOutThread.stop();
+		ArrayList<AwaitAnswerCallback> cloned = new ArrayList<AwaitAnswerCallback>(awaitAnswers.values());
+		for (AwaitAnswerCallback aac : cloned) {
+			aac.onTimeOut();
+			awaitAnswers.remove(aac.getID());
 		}
 		if (micThread != null && micThread.isAlive()) {
 			micThread.stop();
@@ -1077,10 +1076,11 @@ public abstract class ClientConnection {
 			channel.stop();
 		}
 		audioChannels.clear();
-		ArrayList<AwaitAnswerCallback> cloned = new ArrayList<AwaitAnswerCallback>(awaitAnswers.values());
-		for (AwaitAnswerCallback aac : cloned) {
-			aac.onTimeOut();
-			awaitAnswers.remove(aac.getID());
+		if (timeOutThread != null && timeOutThread.isAlive()) {
+			timeOutThread.stop();
+		}
+		if (reconnectThread != null && reconnectThread.isAlive()) {
+			reconnectThread.stop();
 		}
 	}
 	public boolean isConnected() {
