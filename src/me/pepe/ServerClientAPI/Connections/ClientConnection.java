@@ -1064,9 +1064,9 @@ public abstract class ClientConnection {
 			e.printStackTrace();
 		}
 		ArrayList<AwaitAnswerCallback> cloned = new ArrayList<AwaitAnswerCallback>(awaitAnswers.values());
+		awaitAnswers.clear();
 		for (AwaitAnswerCallback aac : cloned) {
 			aac.onTimeOut();
-			awaitAnswers.remove(aac.getID());
 		}
 		if (micThread != null && micThread.isAlive()) {
 			micThread.stop();
