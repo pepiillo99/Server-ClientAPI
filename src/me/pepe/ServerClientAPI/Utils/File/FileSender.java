@@ -7,7 +7,7 @@ import java.io.IOException;
 
 import me.pepe.ServerClientAPI.Utils.Utils;
 
-public class FileSender {
+public abstract class FileSender {
 	private String code;
 	private long fileLenght = 0;
 	private String filePath = "";
@@ -18,6 +18,12 @@ public class FileSender {
 	private long lastSent = 0;
 	private long timeToInform = 0;
 	// hacer que al reconectar continue enviando paquetes (si el ultimo packet no lo recibio deberá volver atras en el read para enviar la parte no recibida)
+	public FileSender(String filePath) {
+		this("", new File(filePath), Utils.getFromSacledBytes("1MB"));
+	}
+	public FileSender(File file) {
+		this("", file, Utils.getFromSacledBytes("1MB"));
+	}
 	public FileSender(String code, String filePath, long bytesPerPacket) {
 		this(code, new File(filePath), bytesPerPacket);
 	}
@@ -43,6 +49,12 @@ public class FileSender {
 	}
 	public String getCode() {
 		return code;
+	}
+	public void setCode(String code) {
+		if (code == null || code.isEmpty()) {
+			System.out.println("code setted");
+			this.code = code;
+		}
 	}
 	public long getFileLenght() {
 		return fileLenght;
@@ -105,4 +117,7 @@ public class FileSender {
 	public int getPorcentSent() {
 		return (int) (((double) sent / (double) fileLenght) * 100);
 	}
+	public abstract void onStart();
+	public abstract void onFilePartSent(int porcent, long bytesSent, long fileLenght);
+	public abstract void onFinish();
 }

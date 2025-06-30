@@ -786,6 +786,7 @@ public abstract class ClientConnection {
 							if (requestPacket.canSent()) {
 								if (filesSending.containsKey(requestPacket.getCode())) {
 									FileSender fileSender = filesSending.get(requestPacket.getCode());
+									fileSender.onStart();
 									setMaxPacketSizeSend(fileSender.getBytesPerPacket() + 50);
 									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
 								} else {
@@ -844,7 +845,7 @@ public abstract class ClientConnection {
 										sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
 									}
 								}
-								onSentFilePart(fileSender);
+								fileSender.onFilePartSent(fileSender.getPorcentSent(), fileSender.getSent(), fileSender.getFileLenght());
 								if (fileSender.isFinished()) {
 									long max = getMaxBytesSenderOnFiles();
 									if (max == -1) {
@@ -853,6 +854,7 @@ public abstract class ClientConnection {
 										setMaxPacketSizeSend(max + 50);
 									}
 									System.out.println("File " + fileSender.getFilePath() + " enviado completo en " + fileSender.getSentTime() + "ms!");
+									fileSender.onFinish();
 								} else {
 									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
 								}
@@ -916,16 +918,32 @@ public abstract class ClientConnection {
 			}
 		}
 	}
-	public void onSentFilePart(FileSender fileSender) {}
 	public void onReceibeFilePart(FileReceiver fileReceiver) {}
 	public String sendFile(String path, String dest) {
 		return sendFile(path, dest, Utils.getFromSacledBytes("1MB"));
 	}
 	public String sendFile(String path, String dest, long bytesPerPacket) {
-		FileSender sender = new FileSender(getRandomFileCode(), path, bytesPerPacket);
-		filesSending.put(sender.getCode(), sender);
-		sendPacket(new PacketFileCanSent(sender.getCode(), sender.getFileType(), dest, sender.getBytesPerPacket(), sender.getFileLenght()));
-		return sender.getCode();
+		return sendFile(new FileSender(getRandomFileCode(), path, bytesPerPacket) {
+			@Override
+			public void onStart() {}
+			@Override
+			public void onFilePartSent(int porcent, long bytesSent, long fileLenght) {}
+			@Override
+			public void onFinish() {}			
+		}, dest);
+	}
+	public String sendFile(FileSender fileSender, String dest) {
+		System.out.println(fileSender.getCode());
+		if (fileSender.getCode() == null || fileSender.getCode().isEmpty()) {
+			fileSender.setCode(getRandomFileCode());
+		}
+		if (!filesSending.containsKey(fileSender.getCode())) {
+			filesSending.put(fileSender.getCode(), fileSender);
+			sendPacket(new PacketFileCanSent(fileSender.getCode(), fileSender.getFileType(), dest, fileSender.getBytesPerPacket(), fileSender.getFileLenght()));
+			return fileSender.getCode();
+		} else {
+			return null;
+		}
 	}
 	public void changeBytesPerPacketOfSender(String code, long bytes) {
 		sendPacket(new PacketFileCanChangeBytesPerPacket(code, bytes));
