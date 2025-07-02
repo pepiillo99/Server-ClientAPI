@@ -51,8 +51,7 @@ public abstract class FileSender {
 		return code;
 	}
 	public void setCode(String code) {
-		if (code == null || code.isEmpty()) {
-			System.out.println("code setted");
+		if (this.code == null || this.code.isEmpty()) {
 			this.code = code;
 		}
 	}
