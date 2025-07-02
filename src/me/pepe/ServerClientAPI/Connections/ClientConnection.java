@@ -783,9 +783,9 @@ public abstract class ClientConnection {
 							sendPacket(new PacketFileSentRequest(solicitudePacket.getCode(), request));
 						} else if (packet instanceof PacketFileSentRequest) {
 							PacketFileSentRequest requestPacket = (PacketFileSentRequest) packet;
+							FileSender fileSender = filesSending.get(requestPacket.getCode());
 							if (requestPacket.canSent()) {
-								if (filesSending.containsKey(requestPacket.getCode())) {
-									FileSender fileSender = filesSending.get(requestPacket.getCode());
+								if (fileSender != null) {
 									fileSender.onStart();
 									setMaxPacketSizeSend(fileSender.getBytesPerPacket() + 50);
 									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
@@ -793,6 +793,9 @@ public abstract class ClientConnection {
 									System.out.println("Se acepto el envio del archivo " + requestPacket.getCode() + " pero el FileSender no estaba creado!");
 								}
 							} else {
+								if (fileSender != null) {
+									fileSender.onReject();
+								}
 								System.out.println("No se acepto el envio del archivo " + requestPacket.getCode());
 							}
 						} else if (packet instanceof PacketFilePartOfFile) {
@@ -924,6 +927,8 @@ public abstract class ClientConnection {
 	}
 	public String sendFile(String path, String dest, long bytesPerPacket) {
 		return sendFile(new FileSender(getRandomFileCode(), path, bytesPerPacket) {
+			@Override
+			public void onReject() {}
 			@Override
 			public void onStart() {}
 			@Override

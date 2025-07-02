@@ -117,6 +117,7 @@ public abstract class FileSender {
 	public int getPorcentSent() {
 		return (int) (((double) sent / (double) fileLenght) * 100);
 	}
+	public abstract void onReject();
 	public abstract void onStart();
 	public abstract void onFilePartSent(int porcent, long bytesSent, long fileLenght);
 	public abstract void onFinish();
