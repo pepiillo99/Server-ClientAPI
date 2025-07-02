@@ -939,7 +939,6 @@ public abstract class ClientConnection {
 		}, dest);
 	}
 	public String sendFile(FileSender fileSender, String dest) {
-		System.out.println(fileSender.getCode());
 		if (fileSender.getCode() == null || fileSender.getCode().isEmpty()) {
 			fileSender.setCode(getRandomFileCode());
 		}
