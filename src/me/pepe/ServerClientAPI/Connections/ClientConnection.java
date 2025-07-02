@@ -825,29 +825,6 @@ public abstract class ClientConnection {
 							if (filesSending.containsKey(partReceivedPacket.getCode())) {
 								FileSender fileSender = filesSending.get(partReceivedPacket.getCode());
 								long diff = fileSender.sent(partReceivedPacket.getBytesLenght());
-								System.out.println("Se detecto un envio con una diferencia de " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
-								if (diff < maxTimePerPacketOnSendFiled) {
-									if (!lastPacketSendFileChangedByteAmount) {
-										double porcent = ((double) maxTimePerPacketOnSendFiled/diff) * 100;
-										long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
-										if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
-											System.out.println("El nuevo envio subió +" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
-											sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
-											lastPacketSendFileChangedByteAmount = true;
-										}
-									} else {
-										System.out.println("el envio anteerior se cambio " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
-										lastPacketSendFileChangedByteAmount = false;
-									}
-								} else if (diff >= maxTimePerPacketOnSendFiled + 150) {
-									double porcent = ((double) (maxTimePerPacketOnSendFiled + 150)/diff) * 100;
-									long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
-									if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
-										System.out.println("El nuevo envio bajó -" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
-										fileSender.setBytesPerPacket(newBytesPerPacket);
-										sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
-									}
-								}
 								fileSender.onFilePartSent(fileSender.getPorcentSent(), fileSender.getSent(), fileSender.getFileLenght());
 								if (fileSender.isFinished()) {
 									long max = getMaxBytesSenderOnFiles();
@@ -859,6 +836,29 @@ public abstract class ClientConnection {
 									System.out.println("File " + fileSender.getFilePath() + " enviado completo en " + fileSender.getSentTime() + "ms!");
 									fileSender.onFinish();
 								} else {
+									System.out.println("Se detecto un envio con una diferencia de " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
+									if (diff < maxTimePerPacketOnSendFiled) {
+										if (!lastPacketSendFileChangedByteAmount) {
+											double porcent = ((double) maxTimePerPacketOnSendFiled/diff) * 100;
+											long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
+											if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
+												System.out.println("El nuevo envio subió +" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
+												sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
+												lastPacketSendFileChangedByteAmount = true;
+											}
+										} else {
+											System.out.println("el envio anteerior se cambio " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
+											lastPacketSendFileChangedByteAmount = false;
+										}
+									} else if (diff >= maxTimePerPacketOnSendFiled + 150) {
+										double porcent = ((double) (maxTimePerPacketOnSendFiled + 150)/diff) * 100;
+										long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
+										if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
+											System.out.println("El nuevo envio bajó -" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
+											fileSender.setBytesPerPacket(newBytesPerPacket);
+											sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
+										}
+									}
 									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
 								}
 							} else {
@@ -879,8 +879,9 @@ public abstract class ClientConnection {
 								setMaxPacketSizeSend(canChange.getBytes() + 50);
 								System.out.println("Se ha cambiado el numero de bytes por packet del sender " + canChange.getCode() + " a " + canChange.getBytes() + "(" + Utils.getBytesScaled(canChange.getBytes()) + ")");
 							} else if (filesReceiver.containsKey(canChange.getCode())) {
-								if (canChangeBytesPerPacket(canChange.getCode(), filesReceiver.get(canChange.getCode()).getFilePath(), canChange.getBytes())) {
-									filesReceiver.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
+								FileReceiver receiver = filesReceiver.get(canChange.getCode());
+								if (!receiver.isFinished() && canChangeBytesPerPacket(canChange.getCode(), receiver.getFilePath(), canChange.getBytes())) {
+									receiver.setBytesPerPacket(canChange.getBytes());
 									setMaxPacketSizeReceive(canChange.getBytes() + 50);
 									sendPacket(canChange);
 									System.out.println("Se ha aceptado el cambio de bytes per packet del receiver " + canChange.getCode() + " a " + (canChange.getBytes() + 50) + "(" + Utils.getBytesScaled(canChange.getBytes() + 50) + ")");
