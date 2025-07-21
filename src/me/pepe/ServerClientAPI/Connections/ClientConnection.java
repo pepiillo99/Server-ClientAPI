@@ -19,8 +19,11 @@ import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.UnresolvedAddressException;
 import java.nio.channels.WritePendingException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map.Entry;
 
 import javax.sound.sampled.LineUnavailableException;
 
@@ -58,7 +61,7 @@ public abstract class ClientConnection {
 	private String ip;
 	private int port;
 	private ClientConnectionType clientConnectionType = null;
-	private List<Packet> pendentingSendPacket = new ArrayList<Packet>();
+	private HashMap<Long, Packet> pendentingSendPacket = new HashMap<Long, Packet>();
 	private long maxPacketSizeSend = Utils.getFromSacledBytes("5KB");
 	private long defaultMaxPacketSizeSend = maxPacketSizeSend;
 	private long maxPacketSizeReceive = Utils.getFromSacledBytes("5KB");
@@ -351,6 +354,23 @@ public abstract class ClientConnection {
 			lastBytePerSecondUpdate = System.currentTimeMillis();
 		}
 	}
+	private void addPendingPacket(long time, Packet packet) {
+		if (!pendentingSendPacket.containsKey(time)) {
+			pendentingSendPacket.put(time, packet);
+		} else {
+			addPendingPacket(time + 1, packet);
+		}
+	}
+	public void deletePendingPacket(Packet packet) {
+		Iterator<Entry<Long, Packet>> it = pendentingSendPacket.entrySet().iterator();
+        while (it.hasNext()) {
+            Entry<Long, Packet> entry = it.next();
+            if (entry.getValue().equals(packet)) {
+                it.remove();
+                break;
+            }
+        }
+	}
 	public void sendPacket(Packet packet) {
 		if (debugMode) {
 			System.out.println("Enviando packet " + packet.getClass().getName());
@@ -360,10 +380,10 @@ public abstract class ClientConnection {
 		}
 		if (!isConnected() || reconnecting) { // es probable que se este reconectando?
 			if (!packet.isIgnorable()) {
-				pendentingSendPacket.add(packet);
+				addPendingPacket(System.currentTimeMillis(), packet);
 			}
 		} else if (pendentingSendPacket.isEmpty()) {
-			pendentingSendPacket.add(packet);
+			addPendingPacket(System.currentTimeMillis(), packet);
 			try {
 				lastTryPacketSent = System.currentTimeMillis();
 				if (byteDebug) {
@@ -378,7 +398,7 @@ public abstract class ClientConnection {
 				tryResend(packet);	
 			}
 		} else {
-			pendentingSendPacket.add(packet);
+			addPendingPacket(System.currentTimeMillis(), packet);
 			if (sendingPacket == null && lastTryPacketSent == 0) {
 				System.out.println("Se intentará forzar el envio del packet...");
 				try {
@@ -561,7 +581,8 @@ public abstract class ClientConnection {
 	}
 	private void sent(Packet packet) {
 		packetsent++;
-		pendentingSendPacket.remove(packet);
+		//pendentingSendPacket.remove(packet);
+        deletePendingPacket(packet);
 		if (packet.hasSentCallback()) {
 			if (byteDebug) {
 				System.out.println("Ejecutando callback del packet ");
@@ -578,9 +599,9 @@ public abstract class ClientConnection {
 		lastTryPacketSent = 0;
 		if (!pendentingSendPacket.isEmpty()) {
 			//Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
-			Packet nextPacket = pendentingSendPacket.get(0);
+			Packet nextPacket = pendentingSendPacket.get(Collections.min(pendentingSendPacket.keySet()));
 			if (debugMode) {
-				System.out.println("Proximo packet pendiente " + nextPacket.getClass().getName() + " para enviar");
+				System.out.println("Próximo packet pendiente " + nextPacket.getClass().getName() + " para enviar");
 			}
 			if (nextPacket != null) {
 				try {
@@ -600,7 +621,8 @@ public abstract class ClientConnection {
 			} else {
 				System.out.println("Ha fallado el packet, se estaba intentando enviar un packet nullo? pendentingSendPacket: " + pendentingSendPacket.size());
 				System.out.println("Para asegurar la conexión, se ha eliminado este packet de la lista de packets pendientes...");
-				pendentingSendPacket.remove(nextPacket);
+				//pendentingSendPacket.remove(nextPacket);
+				deletePendingPacket(nextPacket);
 				sendingPacket = null;
 			}
 		} else {
@@ -1011,7 +1033,7 @@ public abstract class ClientConnection {
 												try {
 													if (sendingPacket != null) {
 														if (!sendingPacket.isIgnorable()) {
-															pendentingSendPacket.add(sendingPacket);
+															addPendingPacket(System.currentTimeMillis(), sendingPacket);
 														}
 														sendingPacket = null;
 													}
