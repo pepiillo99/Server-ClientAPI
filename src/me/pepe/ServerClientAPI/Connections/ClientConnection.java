@@ -19,11 +19,11 @@ import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.UnresolvedAddressException;
 import java.nio.channels.WritePendingException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 import javax.sound.sampled.LineUnavailableException;
 
@@ -61,7 +61,7 @@ public abstract class ClientConnection {
 	private String ip;
 	private int port;
 	private ClientConnectionType clientConnectionType = null;
-	private HashMap<Long, Packet> pendentingSendPacket = new HashMap<Long, Packet>();
+	private ConcurrentSkipListMap<Long, Packet> pendentingSendPacket = new ConcurrentSkipListMap<Long, Packet>();
 	private long maxPacketSizeSend = Utils.getFromSacledBytes("5KB");
 	private long defaultMaxPacketSizeSend = maxPacketSizeSend;
 	private long maxPacketSizeReceive = Utils.getFromSacledBytes("5KB");
@@ -599,7 +599,7 @@ public abstract class ClientConnection {
 		lastTryPacketSent = 0;
 		if (!pendentingSendPacket.isEmpty()) {
 			//Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
-			Packet nextPacket = pendentingSendPacket.get(Collections.min(pendentingSendPacket.keySet()));
+			Packet nextPacket = pendentingSendPacket.firstEntry().getValue();
 			if (debugMode) {
 				System.out.println("Próximo packet pendiente " + nextPacket.getClass().getName() + " para enviar");
 			}
