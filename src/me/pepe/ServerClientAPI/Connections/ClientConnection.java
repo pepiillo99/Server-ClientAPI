@@ -477,7 +477,7 @@ public abstract class ClientConnection {
 						PacketUtilities.writeInteger(packetID, output);
 						PacketUtilities.writeInteger(packet.getPacketToClientType(), output);
 						PacketUtilities.writeLong(System.currentTimeMillis(), output);
-						PacketUtilities.writeInteger(packet.hasAwaitAnswerCallback() ? packet.getAwaitAnswerCallback().getID() : packet.getPendentingAnswer(), output);
+						PacketUtilities.writeInteger(packet.hasAwaitAnswerCallback() ? packet.getAwaitAnswerCallback().getID() : packet.getPendendingAnswer(), output);
 						for (byte b : packetOutput.toByteArray()) {
 							output.write(b);
 						}
@@ -754,7 +754,7 @@ public abstract class ClientConnection {
 				if (debugMode) {
 					System.out.println("Packet recibido: " + packet.getClass().getName());
 				}
-				packet.setPendentingAnswer(awaitAnswer);
+				packet.setPendendingAnswer(awaitAnswer);
 				packet.setCurrent(current);
 				downPing = System.currentTimeMillis() - packet.getCurrent();
 				if (awaitAnswer != 0 && awaitAnswers.containsKey(awaitAnswer)) {
