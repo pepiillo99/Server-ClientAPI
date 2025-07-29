@@ -14,7 +14,7 @@ public abstract class Packet {
 	private PacketSentCallback sentCallback = null;
 	private boolean ignorable = false; // si el sistema ignora el envio del packet mientras se esta reconectando
 	private AwaitAnswerCallback awaitAnswerCallback;
-	private int pendendingAnswer = 0;
+	private int pendentingAnswer = 0;
 	public Packet(int packetToClientType) {
 		this.packetToClientType = packetToClientType;
 	}
@@ -38,7 +38,7 @@ public abstract class Packet {
 		return sentCallback;
 	}
 	public boolean isIgnorable() { // si es ignorable y no tiene un sent callback ni un answer callback
-		return ignorable && !hasAwaitAnswerCallback() && !hasSentCallback() && pendendingAnswer != 0;
+		return ignorable && !hasAwaitAnswerCallback() && !hasSentCallback() && pendentingAnswer != 0;
 	}
 	public void setIgnorable(boolean ignorable) {
 		this.ignorable = ignorable;
@@ -53,21 +53,21 @@ public abstract class Packet {
 		this.awaitAnswerCallback = awaitAnswerCallback;
 	}
 	public void answer(ClientConnection connection, Packet packet) {
-		if (hasPendendingAnswer()) {
-			packet.setPendendingAnswer(pendendingAnswer);
+		if (hasPendentingAnswer()) {
+			packet.setPendentingAnswer(pendentingAnswer);
 			connection.sendPacket(packet);
 		} else {
 			System.out.println("El cliente no tiene awaitAnswer");
 		}
 	}
-	public int getPendendingAnswer() {
-		return pendendingAnswer;
+	public int getPendentingAnswer() {
+		return pendentingAnswer;
 	}
-	public boolean hasPendendingAnswer() {
-		return pendendingAnswer != 0;
+	public boolean hasPendentingAnswer() {
+		return pendentingAnswer != 0;
 	}
-	public void setPendendingAnswer(int pendentingAnswer) {
-		this.pendendingAnswer = pendentingAnswer;
+	public void setPendentingAnswer(int pendentingAnswer) {
+		this.pendentingAnswer = pendentingAnswer;
 	}
 	public abstract Packet serialize(ByteArrayInputStream info) throws ReadPacketException;
 	public abstract ByteArrayOutputStream deserialize(ByteArrayOutputStream toInfo) throws WritePacketException;
