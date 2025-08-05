@@ -14,10 +14,10 @@ public abstract class AwaitAnswerCallback {
 	public AwaitAnswerCallback(ClientConnection clientConnection, long timeout) {
 		this(clientConnection, timeout, null);
 	}
-	public AwaitAnswerCallback(ClientConnection clientConnection, Class<Packet> expectedPacketClass) {
+	public AwaitAnswerCallback(ClientConnection clientConnection, Class<? extends Packet> expectedPacketClass) {
 		this(clientConnection, 5000, expectedPacketClass);
 	}
-	public AwaitAnswerCallback(ClientConnection clientConnection, long timeout, Class<Packet> expectedPacketClass) {
+	public AwaitAnswerCallback(ClientConnection clientConnection, long timeout, Class<? extends Packet> expectedPacketClass) {
 		this.id = clientConnection.getNextAwaitAnswerID();
 		this.timeout = timeout;
 		this.answerTime = System.currentTimeMillis();
