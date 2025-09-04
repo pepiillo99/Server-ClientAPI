@@ -11,9 +11,10 @@ import javax.sound.sampled.TargetDataLine;
 
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatSend;
 import me.pepe.ServerClientAPI.Utils.SoundData;
+import me.pepe.ServerClientAPI.Utils.StoppableThread;
 import me.pepe.ServerClientAPI.Utils.Utils;
 
-public abstract class MicrophoneThread extends Thread {
+public abstract class MicrophoneThread extends StoppableThread {
 	private double amplification = 1.0;
 	private TargetDataLine mic;
 	private AudioFormat audioFormat = new AudioFormat(11025f, 8, 1, true, true); //11.025khz, 8bit, mono, signed, big endian (changes nothing in 8 bit) ~8kb/s
@@ -61,7 +62,7 @@ public abstract class MicrophoneThread extends Thread {
 	}
 	@Override
 	public void run() {
-		while (true) {
+		while (isRunning()) {
 			if (mic.available() >= maxInfoPerPacket) {
 				byte[] data = new byte[maxInfoPerPacket];
 				while (mic.available() >= maxInfoPerPacket) {
@@ -93,9 +94,7 @@ public abstract class MicrophoneThread extends Thread {
 			} else {
 				try {
 					sleep(10);
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
+				} catch (InterruptedException e) {}
 			}
 		}
 	}

@@ -49,6 +49,7 @@ import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatSend;
 import me.pepe.ServerClientAPI.Utils.AwaitAnswerCallback;
 import me.pepe.ServerClientAPI.Utils.PacketSentCallback;
 import me.pepe.ServerClientAPI.Utils.PacketUtilities;
+import me.pepe.ServerClientAPI.Utils.StoppableThread;
 import me.pepe.ServerClientAPI.Utils.Utils;
 import me.pepe.ServerClientAPI.Utils.File.FileReceiver;
 import me.pepe.ServerClientAPI.Utils.File.FileSender;
@@ -76,7 +77,7 @@ public abstract class ClientConnection {
 	private boolean connectionCompleted = false; // first connection is completed?
 	private long lastTryPacketSent = 0;
 	private long lastPacketSent = 0;
-	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizá los bytes por segundo
+	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizó los bytes por segundo
 	// b/s Received
 	private long bytesPerSecondReceived = 0;
 	private long newbytesPerSecondReceived = 0;	
@@ -91,13 +92,13 @@ public abstract class ClientConnection {
 	private String reconnectKey = "";
 	private long timeOut = 5000;
 	private long lastPinged = 0;
-	private Thread timeOutThread;
+	private StoppableThread timeOutThread;
 	private int packetsent = 0;
 	private int packetReceived = 0;
 	private boolean canReconnect = true;
 	private int reconnectAttempts = 0;
 	private boolean connected = false; // para saber si al desconectar puede reconectar o definitivamente se desconecto
-	private Thread reconnectThread; // thread que define si la conexion caduca en el servidor
+	private StoppableThread reconnectThread; // thread que define si la conexion caduca en el servidor
 	private long maxTimePerPacketOnSendFiled = 500;
 	private boolean lastPacketSendFileChangedByteAmount = false;
 	private HashMap<String, FileSender> filesSending = new HashMap<String, FileSender>();
@@ -156,16 +157,14 @@ public abstract class ClientConnection {
 			});
 			connectionCompleted = true;
 			sendPacket(rdkPacket);
-			timeOutThread = new Thread() {
+			timeOutThread = new StoppableThread() {
 				@Override
 				public void run() {
-					while (true) {
+					while (isRunning()) {
 						try {
 							sleep(1000);
 							checkTimeOutAwaitAnswers();
-						} catch (InterruptedException e) {
-							e.printStackTrace();
-						}
+						} catch (InterruptedException e) {}
 						if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
 							System.out.println("Client connection time out! " + reconnectKey);
 							dropAndReconnect();
@@ -174,7 +173,7 @@ public abstract class ClientConnection {
 				}
 			};
 		} else {
-			timeOutThread = new Thread() {
+			timeOutThread = new StoppableThread() {
 				@Override
 				public void run() {
 					try {
@@ -184,9 +183,7 @@ public abstract class ClientConnection {
 							System.out.println("Pendenting connection dropped by timeout");
 							totalDisconnect();
 						}
-					} catch (InterruptedException e) {
-						e.printStackTrace();
-					}
+					} catch (InterruptedException e) {}
 					if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
 						System.out.println("Client connection time out! " + reconnectKey);
 						dropAndReconnect();
@@ -215,16 +212,14 @@ public abstract class ClientConnection {
 		this.port = port;
 		connection = AsynchronousSocketChannel.open();
 		this.clientConnectionType = ClientConnectionType.CLIENT_TO_SERVER;
-		timeOutThread = new Thread() {
+		timeOutThread = new StoppableThread() {
 			@Override
 			public void run() {
-				while (true) {
+				while (isRunning()) {
 					try {
 						sleep(1000);
 						checkTimeOutAwaitAnswers();
-					} catch (InterruptedException e) {
-						e.printStackTrace();
-					}
+					} catch (InterruptedException e) {}
 					if (isConnected()) {
 						try {
 							sendPacket(new PacketGlobalPing());
@@ -990,7 +985,7 @@ public abstract class ClientConnection {
 	}
 	public void reconnect(AsynchronousSocketChannel connection) {
 		if (reconnectThread != null) {
-			reconnectThread.stop();
+			reconnectThread.kill();
 			reconnectThread = null;
 		}
 		try {
@@ -1067,16 +1062,14 @@ public abstract class ClientConnection {
 						}
 					} else {
 						System.out.println("Connection of client dropped, they can reconnect if this take more 30 seconds it will be disconnect.");
-						reconnectThread = new Thread() {
+						reconnectThread = new StoppableThread() {
 							@Override
 							public void run() {
 								try {
 									sleep(30000);
 									System.out.println("Connection take more 30 seconds, disconnected.");
 									disconnect();
-								} catch (InterruptedException e) {
-									e.printStackTrace();
-								}
+								} catch (InterruptedException e) {}
 							}
 						};
 						reconnectThread.start();
@@ -1101,7 +1094,7 @@ public abstract class ClientConnection {
 		connected = false;
 		reconnecting = false;
 		try {
-			if (connection.isOpen()) {
+			if (connection != null && connection.isOpen()) {
 				connection.close();
 			}
 			onDisconnect();
@@ -1114,18 +1107,20 @@ public abstract class ClientConnection {
 			aac.onTimeOut();
 		}
 		if (micThread != null && micThread.isAlive()) {
-			micThread.stop();
+			micThread.kill();
 			micThread = null;
 		}
 		for (AudioChannel channel : audioChannels.values()) {
-			channel.stop();
+			channel.kill();
 		}
 		audioChannels.clear();
 		if (timeOutThread != null && timeOutThread.isAlive()) {
-			timeOutThread.stop();
+			try {
+				timeOutThread.kill();
+			} catch(Exception ex) {}
 		}
 		if (reconnectThread != null && reconnectThread.isAlive()) {
-			reconnectThread.stop();
+			reconnectThread.kill();
 		}
 	}
 	public boolean isConnected() {
@@ -1219,9 +1214,9 @@ public abstract class ClientConnection {
 	}
 	/*
 	 * En la parte del servidor deberemos enviar este packet al resto de clientes
-	 * Antes deberemos de pasarlo a PacketVoiceChatReceive con el metodo que está
+	 * Antes deberemos de pasarlo a PacketVoiceChatReceive con el metodo que estï¿½
 	 * integrado dentro de la clase del paquete toSend(int channelID)
-	 * La ID del canal será la misma ID del cliente.
+	 * La ID del canal serï¿½ la misma ID del cliente.
 	 */
 	public void onSpeak(PacketVoiceChatSend packet) {}
 	public int getNextAwaitAnswerID() {
@@ -1237,7 +1232,7 @@ public abstract class ClientConnection {
 		}
 	}
 	protected void killClient() {
-		timeOutThread.stop();
+		timeOutThread.kill();
 		stopRead();
 		connection = null;
 	}

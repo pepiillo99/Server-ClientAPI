@@ -13,9 +13,10 @@ import javax.sound.sampled.SourceDataLine;
 
 import me.pepe.ServerClientAPI.GlobalPackets.VoiceChat.PacketVoiceChatReceive;
 import me.pepe.ServerClientAPI.Utils.SoundData;
+import me.pepe.ServerClientAPI.Utils.StoppableThread;
 import me.pepe.ServerClientAPI.Utils.Utils;
 
-public class AudioChannel extends Thread {
+public class AudioChannel extends StoppableThread {
 	private int channelID;
 	private double amplification = 1.0;
 	private List<PacketVoiceChatReceive> queue = new ArrayList<PacketVoiceChatReceive>();
@@ -58,7 +59,7 @@ public class AudioChannel extends Thread {
 	}
 	@Override
 	public void run() {
-		while (true) {
+		while (isRunning()) {
 			try {
 				DataLine.Info info = new DataLine.Info(SourceDataLine.class, audioFormat);
 				speaker = (SourceDataLine) AudioSystem.getLine(info);
@@ -92,7 +93,9 @@ public class AudioChannel extends Thread {
 					}
 				}
 			} catch (Exception ex) {
-				ex.printStackTrace();
+				if (!(ex instanceof InterruptedException)) {
+					ex.printStackTrace();
+				}
 				if (speaker != null) {
 					speaker.close();
 				}

@@ -59,7 +59,7 @@ public abstract class ServerConnection {
 				@Override
 				public void failed(Throwable exc, AsynchronousServerSocketChannel serverSock) {
 					if (exc.getClass() != AsynchronousCloseException.class) {
-						System.out.println("Error al conectar un nuevo cliente:");
+						System.err.println("Error al conectar un nuevo cliente:");
 						exc.printStackTrace();
 					}
 				}
