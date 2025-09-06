@@ -997,6 +997,7 @@ public abstract class ClientConnection {
 		}
 		this.connection = connection;
 		startRead();
+		lastPinged = System.currentTimeMillis();
 		reconnecting = false;
 		onReconnect();
 	}
