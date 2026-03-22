@@ -524,6 +524,7 @@ public abstract class ClientConnection {
 											dropAndReconnect();
 										}
 										System.out.println("ERROR AL ENVIAR EL PACKET ENTERO " + packet.getClass().getName());
+										exc.printStackTrace();
 									}				
 								});
 							}
@@ -533,6 +534,7 @@ public abstract class ClientConnection {
 									dropAndReconnect();
 								}
 								System.out.println("ERROR AL ENVIAR EL PACKET SIZE");
+								exc.printStackTrace();
 							}				
 						});
 					} else {
