@@ -672,7 +672,8 @@ public abstract class ClientConnection {
 									if (exc instanceof AsynchronousCloseException) {
 										dropAndReconnect();
 									}
-									System.out.println("ERROR AL COGER EL PACKET RECIBIDO");							
+									System.out.println("ERROR AL COGER EL PACKET RECIBIDO");
+									exc.printStackTrace();
 								}        	
 							});
 						} else {
