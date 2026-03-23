@@ -468,7 +468,7 @@ public abstract class ClientConnection {
 				packet.deserialize(packetOutput);
 				if (packetOutput.size() + 8 < maxPacketSizeSend) {
 					int packetID = packetManager.getPacketID(packet.getClass());
-					if (packetID != 0) {					
+					if (packetID != 0) {
 						PacketUtilities.writeInteger(packetID, output);
 						PacketUtilities.writeInteger(packet.getPacketToClientType(), output);
 						PacketUtilities.writeLong(System.currentTimeMillis(), output);
@@ -538,9 +538,12 @@ public abstract class ClientConnection {
 							}				
 						});
 					} else {
+						deletePendingPacket(sendingPacket);
+						sendingPacket = null;
 						System.err.println("El packet " + packet.getClass().getName() + " no esta registrado...");
 					}
 				} else {
+					deletePendingPacket(sendingPacket);
 					sendingPacket = null;
 					System.err.println("No se ha enviado el packet " + packet.getClass().getSimpleName() + " porque ocupa mas de " + Utils.getBytesScaled(maxPacketSizeSend) + "(" + maxPacketSizeSend + ")" +  " (" + Utils.getBytesScaled(packetOutput.size() + 8) + " (" + (packetOutput.size() + 8) + "bytes))");
 				}
