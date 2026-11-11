@@ -2,111 +2,172 @@ package me.pepe.ServerClientAPI.Utils.File;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
-import me.pepe.ServerClientAPI.Utils.Utils;
+public class FileReceiver implements AutoCloseable {
+	private final String code;
+	private final long fileLenght;
+	private final Path root;
+	private Path target;
+	private Path temporary;
+	private BufferedOutputStream output;
+	private long received;
+	private long bytesPerPacket;
+	private final long startTime = System.currentTimeMillis();
+	private long finishTime;
+	private boolean finished;
+	private boolean closed;
+	private IOException error;
 
-public class FileReceiver {
-	private String code;
-	private long fileLenght = 0;
-	private String filePath = "";
-	private long received = 0;
-	private FileOutputStream fos;
-	private BufferedOutputStream bos;
-	private long startTime, finishTime;
-	private long bytesPerPacket = 0;
-	private long lastInformed = 0;
-	private long lastReceived = System.currentTimeMillis();
-	private long timeToInform = 0;
 	public FileReceiver(String code, long bytesPerPacket, long fileLenght, String filePath) {
+		this(code, bytesPerPacket, fileLenght, filePath, new File("").getAbsoluteFile());
+	}
+
+	public FileReceiver(String code, long bytesPerPacket, long fileLenght, String filePath, File directory) {
 		this.code = code;
 		this.bytesPerPacket = bytesPerPacket;
 		this.fileLenght = fileLenght;
-		this.filePath = filePath;
-		this.startTime = System.currentTimeMillis();
-		if (checkFileExists()) {
-			new File(filePath).delete();
-			System.out.println("Archivo eliminado!");
-			try {
-				fos = new FileOutputStream(filePath);
-				bos = new BufferedOutputStream(fos);				
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
+		this.root = directory.toPath().toAbsolutePath().normalize();
+		try {
+			if (bytesPerPacket <= 0 || bytesPerPacket > FileSender.MAX_BYTES_PER_PACKET || fileLenght < 0) {
+				error = new IOException("Tamaño de transferencia inválido");
+				return;
 			}
-		} else {
-			try {
-				new File(filePath.replace(new File(filePath).getName(), "")).mkdirs();
-				fos = new FileOutputStream(filePath);
-				bos = new BufferedOutputStream(fos);				
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
+			target = root.resolve(filePath).normalize();
+			if (!isSafeTarget()) {
+				error = new IOException("Destino de archivo no permitido");
+				return;
 			}
+			Files.createDirectories(target.getParent());
+			if (!isSafeTarget()) {
+				error = new IOException("Destino de archivo no permitido");
+				return;
+			}
+			temporary = Files.createTempFile(target.getParent(), ".dymos-receive-", ".part");
+			output = new BufferedOutputStream(Files.newOutputStream(temporary));
+			if (fileLenght == 0) {
+				finish();
+			}
+		} catch (IOException | RuntimeException exception) {
+			error = new IOException("No se pudo preparar la recepción del archivo", exception);
+			close();
 		}
 	}
+
 	public String getCode() {
 		return code;
 	}
-	public long getBytesPerPacket() {
+	public synchronized long getBytesPerPacket() {
 		return bytesPerPacket;
 	}
-	public void setBytesPerPacket(long bytesPerPacket) {
-		this.bytesPerPacket = bytesPerPacket;
+	public synchronized void setBytesPerPacket(long bytesPerPacket) {
+		if (bytesPerPacket > 0 && bytesPerPacket <= FileSender.MAX_BYTES_PER_PACKET) {
+			this.bytesPerPacket = bytesPerPacket;
+		}
 	}
 	public long getFileLenght() {
 		return fileLenght;
 	}
 	public String getFilePath() {
-		return filePath;
+		return target == null ? "" : target.toString();
 	}
 	public String getFileType() {
-		String[] split = filePath.split("\\.");
-	       return split[split.length-1];
+		String name = target == null ? "" : target.getFileName().toString();
+		int dot = name.lastIndexOf('.');
+		return dot < 0 ? name : name.substring(dot + 1);
 	}
-	public long getReceived() {
+	public synchronized long getReceived() {
 		return received;
 	}
-	public boolean received(byte[] bytes) {
-	    try {
-	    	if (bytesPerPacket >= bytes.length) {
-				bos.write(bytes, 0, (int) bytes.length);
-				received += bytes.length;
-				if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
-					lastInformed = System.currentTimeMillis();
-					System.out.println(Utils.getBytesScaled(received) + "(" + received + ") recibido de " + Utils.getBytesScaled(fileLenght) + "(" + fileLenght + ") - " + getPorcentReceived() + "% " + (System.currentTimeMillis() - lastReceived) + "ms de diferencia entre paquetes");
-				}
-				lastReceived = System.currentTimeMillis();
-				if (isFinished()) {
-					bos.flush();
-					fos.close();
-					bos.close();
-					finishTime = System.currentTimeMillis();
-				}
-				return true;
-	    	} else {
-	    		System.out.println("Se ha cancelado el envio del archivo " + code + " porque se recibio un packet de " + bytes.length + " con un maximo de " + bytesPerPacket);
-	    		return false;
-	    	}
-	    } catch (IOException e) {
-			e.printStackTrace();
+	public synchronized boolean received(byte[] bytes) {
+		if (!isReady() || closed || finished || bytes == null || bytes.length == 0
+				|| bytes.length > bytesPerPacket || bytes.length > fileLenght - received) {
+			close();
+			return false;
 		}
-	    return false;
-	}
-	public boolean isFinished() {
-		return fileLenght == received;
-	}
-	public long getReceivedTime() {
-		if (isFinished()) {
-			return finishTime - startTime;
-		} else {
-			return -1;
+		try {
+			output.write(bytes);
+			received += bytes.length;
+			if (received == fileLenght) {
+				finish();
+			}
+			return true;
+		} catch (IOException exception) {
+			error = exception;
+			close();
+			return false;
 		}
+	}
+	public synchronized boolean isFinished() {
+		return finished;
+	}
+	public synchronized long getReceivedTime() {
+		return finished ? finishTime - startTime : -1;
 	}
 	public boolean checkFileExists() {
-		return new File(filePath).exists();
+		return target != null && Files.exists(target);
 	}
-	public int getPorcentReceived() {
-		return (int) (((double) received / (double) fileLenght) * 100);
+	public synchronized int getPorcentReceived() {
+		return finished ? 100 : fileLenght == 0 ? 0 : (int) (100.0 * received / fileLenght);
+	}
+	public synchronized boolean isReady() {
+		return error == null && (output != null || finished);
+	}
+	public synchronized IOException getError() {
+		return error;
+	}
+
+	private boolean isSafeTarget() throws IOException {
+		if (target == null || target.equals(root) || !target.startsWith(root) || Files.isSymbolicLink(target)) {
+			return false;
+		}
+		Path existing = target.getParent();
+		while (existing != null && !Files.exists(existing)) {
+			existing = existing.getParent();
+		}
+		return existing != null && existing.toRealPath().startsWith(root.toRealPath());
+	}
+
+	private void finish() throws IOException {
+		output.close();
+		output = null;
+		if (!isSafeTarget()) {
+			throw new IOException("El destino del archivo ha cambiado");
+		}
+		try {
+			Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+		} catch (AtomicMoveNotSupportedException exception) {
+			Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+		}
+		temporary = null;
+		finishTime = System.currentTimeMillis();
+		finished = true;
+		closed = true;
+	}
+
+	@Override
+	public synchronized void close() {
+		closed = true;
+		try {
+			if (output != null) {
+				output.close();
+				output = null;
+			}
+		} catch (IOException exception) {
+			error = exception;
+		} finally {
+			if (temporary != null) {
+				try {
+					Files.deleteIfExists(temporary);
+					temporary = null;
+				} catch (IOException exception) {
+					error = exception;
+				}
+			}
+		}
 	}
 }

@@ -12,40 +12,41 @@ import me.pepe.ServerClientAPI.Exceptions.ReadPacketException;
 import me.pepe.ServerClientAPI.Exceptions.WritePacketException;
 
 public class PacketUtilities {
-	private static String getString(int size, ByteArrayInputStream byteArray) { // el size es cuanto mide, si falla puede causar errores (size * 255)
+	private static String getString(int size, ByteArrayInputStream byteArray) throws ReadPacketException {
 		int stringLeght = 0;
 		for (int i = size; i > 0; i--) {
-			stringLeght += byteArray.read();
+			int length = byteArray.read();
+			if (length < 0) {
+				throw new ReadPacketException("Longitud de texto incompleta");
+			}
+			stringLeght += length;
 		}
-        byte[] stringArray = new byte[stringLeght];
-        byteArray.read(stringArray, 0, stringLeght);
+		byte[] stringArray = readBytes(stringLeght, byteArray);
         return new String(stringArray, StandardCharsets.UTF_8);
 	}	
 	private static String getSizedString(int min, int max, ByteArrayInputStream byteArray) throws ReadPacketException { // la linea debe de ser menos de 255
 		if (max > 255) {
 			throw new ReadPacketException("El maximo no puede superar los 255");
 		} else if (min < 0) {
-			throw new ReadPacketException("El minimo debe de ser inferior a 0");
+			throw new ReadPacketException("El mínimo debe ser igual o superior a 0");
 		} else {
 			String string = getString(1, byteArray);
 			if (string.length() > max) {
-				throw new ReadPacketException("La linea supera el maximo (" + string.length() + "/" + max + ") '" + string + "'");
+				throw new ReadPacketException("La longitud del texto supera el máximo");
 			} else if (string.length() < min) {
-				throw new ReadPacketException("La linea es inferior al minimo (" + min + "/" + string.length() + ") '" + string + "'");
+				throw new ReadPacketException("La longitud del texto es inferior al mínimo");
 			} else {
 				return string;
 			}
 		}
 	}
 	public static String getString(ByteArrayInputStream byteArray) throws ReadPacketException {
-		int stringLeght = getInteger(byteArray);
-        byte[] stringArray = new byte[stringLeght];
-        byteArray.read(stringArray, 0, stringLeght);
+		byte[] stringArray = readBytes(getInteger(byteArray), byteArray);
         return new String(stringArray, StandardCharsets.UTF_8);
 	}
 	public static boolean getBoolean(ByteArrayInputStream byteArray) throws ReadPacketException {
-		byte b = (byte) byteArray.read();
-		if (b < 0) {
+		int b = byteArray.read();
+		if (b != 0 && b != 1) {
 			throw new ReadPacketException("No se ha podido obtener el boolean adecuadamente (" + b + ")");
 		} else {
 			return b == 1 ? true : false;
@@ -53,37 +54,51 @@ public class PacketUtilities {
 	}
 	public static int getInteger(ByteArrayInputStream byteArray) throws ReadPacketException {
 		String hex = getSizedString(1, 8, byteArray);
-		return Integer.parseUnsignedInt(hex, 16);
+		try {
+			return Integer.parseUnsignedInt(hex, 16);
+		} catch (NumberFormatException exception) {
+			throw new ReadPacketException("Entero inválido");
+		}
 	}
 	public static double getDouble(ByteArrayInputStream byteArray) throws ReadPacketException {
 		String hex = getSizedString(7, 23, byteArray);
-		return Double.valueOf(hex);
+		try {
+			return Double.valueOf(hex);
+		} catch (NumberFormatException exception) {
+			throw new ReadPacketException("Decimal inválido");
+		}
 	}
 	public static long getLong(ByteArrayInputStream byteArray) throws ReadPacketException {
 		String hex = getSizedString(1, 16, byteArray);
-		return Long.parseUnsignedLong(hex, 16);
+		try {
+			return Long.parseUnsignedLong(hex, 16);
+		} catch (NumberFormatException exception) {
+			throw new ReadPacketException("Entero largo inválido");
+		}
 	}
 	public static UUID getUUID(ByteArrayInputStream byteArray) {
-		String uuid = getString(1, byteArray);
-		return UUID.fromString(uuid);
+		try {
+			return UUID.fromString(getString(1, byteArray));
+		} catch (ReadPacketException exception) {
+			throw new IllegalArgumentException("UUID incompleto", exception);
+		}
 	}
 	public static List<String> getListString(ByteArrayInputStream byteArray) throws ReadPacketException {
 		List<String> list = new ArrayList<String>();
 		int listSize = getInteger(byteArray);
+		validateLength(listSize, byteArray.available());
 		for (int i = listSize; i > 0; i--) {
 			list.add(getString(byteArray));
 		}
 		return list;
 	}
 	public static byte[] getBytes(ByteArrayInputStream byteArray) throws ReadPacketException {
-		int size = getInteger(byteArray);
-        byte[] bytes = new byte[size];
-        byteArray.read(bytes, 0, size);
-        return bytes;
+		return readBytes(getInteger(byteArray), byteArray);
 	}
 	public static List<byte[]> getListBytes(ByteArrayInputStream byteArray) throws ReadPacketException {
 		List<byte[]> list = new ArrayList<byte[]>();
 		int listSize = getInteger(byteArray);
+		validateLength(listSize, byteArray.available());
 		for (int i = listSize; i > 0; i--) {
 			list.add(getBytes(byteArray));
 		}
@@ -163,5 +178,20 @@ public class PacketUtilities {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	private static void validateLength(int length, int available) throws ReadPacketException {
+		if (length < 0 || length > available) {
+			throw new ReadPacketException("La longitud declarada supera los datos disponibles");
+		}
+	}
+
+	private static byte[] readBytes(int length, ByteArrayInputStream input) throws ReadPacketException {
+		validateLength(length, input.available());
+		byte[] bytes = new byte[length];
+		if (length > 0 && input.read(bytes, 0, length) != length) {
+			throw new ReadPacketException("Datos incompletos");
+		}
+		return bytes;
 	}
 }

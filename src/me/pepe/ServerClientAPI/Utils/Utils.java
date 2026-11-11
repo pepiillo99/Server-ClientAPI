@@ -74,7 +74,7 @@ public class Utils {
 		}
 		return bytes + "B";
 	}
-	public static long getFromSacledBytes(String scaled) { // si viene de getBytesScaled es probable que haya perdidas de información porque este redondea...
+	public static long getFromSacledBytes(String scaled) { // si viene de getBytesScaled es probable que haya perdidas de informaciÃ³n porque este redondea...
 		if (scaled.endsWith("TB") || scaled.endsWith("GB") || scaled.endsWith("MB") || scaled.endsWith("KB")) {
 			try {
 				long bytes = Long.valueOf(scaled.substring(0,  scaled.length() - 2));

@@ -1,12 +1,15 @@
 package me.pepe.ServerClientAPI.Utils;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import me.pepe.ServerClientAPI.Packet;
 import me.pepe.ServerClientAPI.Connections.ClientConnection;
 
 public abstract class AwaitAnswerCallback {
 	private int id;
 	private long timeout = 5000;
-	private long answerTime = 0;
+	private volatile long answerTime = 0;
+	private final AtomicBoolean completed = new AtomicBoolean();
 	private Class<? extends Packet> expectedPacketClass;
 	public AwaitAnswerCallback(ClientConnection clientConnection) {
 		this(clientConnection, 5000, null);
@@ -20,7 +23,6 @@ public abstract class AwaitAnswerCallback {
 	public AwaitAnswerCallback(ClientConnection clientConnection, long timeout, Class<? extends Packet> expectedPacketClass) {
 		this.id = clientConnection.getNextAwaitAnswerID();
 		this.timeout = timeout;
-		this.answerTime = System.currentTimeMillis();
 		this.expectedPacketClass = expectedPacketClass;
 	}
 	public int getID() {
@@ -30,7 +32,7 @@ public abstract class AwaitAnswerCallback {
 		return timeout;
 	}
 	public boolean isTimeOut() {
-		return (answerTime + timeout) - System.currentTimeMillis() <= 0;
+		return answerTime != 0 && !completed.get() && System.currentTimeMillis() - answerTime >= timeout;
 	}
 	public void setExpectedPacket(Class<? extends Packet> expectedPacketClass) {
 		this.expectedPacketClass = expectedPacketClass;
@@ -40,4 +42,24 @@ public abstract class AwaitAnswerCallback {
 	}
 	public abstract void onAnswer(Packet packet);
 	public abstract void onTimeOut();
+
+	public void onFailure(Exception exception) {
+		onTimeOut();
+	}
+
+	public void startWaiting() {
+		answerTime = System.currentTimeMillis();
+	}
+
+	public void complete(Packet packet) {
+		if (completed.compareAndSet(false, true)) {
+			onAnswer(packet);
+		}
+	}
+
+	public void fail(Exception exception) {
+		if (completed.compareAndSet(false, true)) {
+			onFailure(exception);
+		}
+	}
 }

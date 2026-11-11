@@ -7,6 +7,7 @@ import me.pepe.ServerClientAPI.Packet;
 import me.pepe.ServerClientAPI.Exceptions.ReadPacketException;
 import me.pepe.ServerClientAPI.Exceptions.WritePacketException;
 import me.pepe.ServerClientAPI.Utils.PacketUtilities;
+import me.pepe.ServerClientAPI.Utils.AwaitAnswerCallback;
 
 public class PacketFileCanChangeBytesPerPacket extends Packet {
 	private String code;
@@ -18,6 +19,10 @@ public class PacketFileCanChangeBytesPerPacket extends Packet {
 		super(0);
 		this.code = code;
 		this.bytes = bytes;
+	}
+	public PacketFileCanChangeBytesPerPacket(String code, long bytes, AwaitAnswerCallback callback) {
+		this(code, bytes);
+		setAwaitAnswerCallback(callback);
 	}
 	@Override
 	public Packet serialize(ByteArrayInputStream info) throws ReadPacketException {

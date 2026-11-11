@@ -10,9 +10,10 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.nio.Buffer;
+import java.security.SecureRandom;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.CompletionHandler;
 import java.nio.channels.NotYetConnectedException;
@@ -20,10 +21,12 @@ import java.nio.channels.UnresolvedAddressException;
 import java.nio.channels.WritePendingException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
 import javax.sound.sampled.LineUnavailableException;
 
@@ -58,64 +61,65 @@ import me.pepe.ServerClientAPI.VoiceChat.MicrophoneThread;
 
 public abstract class ClientConnection {
 	private ServerClientAPI packetManager;
-	private AsynchronousSocketChannel connection;
+	private volatile AsynchronousSocketChannel connection;
 	private String ip;
 	private int port;
 	private ClientConnectionType clientConnectionType = null;
 	private ConcurrentSkipListMap<Long, Packet> pendentingSendPacket = new ConcurrentSkipListMap<Long, Packet>();
-	private long maxPacketSizeSend = Utils.getFromSacledBytes("5KB");
+	private volatile long maxPacketSizeSend = Utils.getFromSacledBytes("5KB");
 	private long defaultMaxPacketSizeSend = maxPacketSizeSend;
-	private long maxPacketSizeReceive = Utils.getFromSacledBytes("5KB");
+	private volatile long maxPacketSizeReceive = Utils.getFromSacledBytes("5KB");
 	private long defaultMaxPacketSizeReceive = maxPacketSizeReceive;
 	private int nextPacketSize;
 	private long downPing = 0;
-	private boolean reading = false;
-	private ByteBuffer readIncompletePacket;
-	private ByteBuffer writeIncompletePacket;
+	private volatile boolean reading = false;
 	private String ipC = "";
 	public boolean debugMode = false;
-	private boolean connectionCompleted = false; // first connection is completed?
+	private volatile boolean connectionCompleted = false; // first connection is completed?
 	private long lastTryPacketSent = 0;
 	private long lastPacketSent = 0;
-	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualiz� los bytes por segundo
+	private long lastBytePerSecondUpdate = 0; // la ultima vez que actualizó los bytes por segundo
 	// b/s Received
-	private long bytesPerSecondReceived = 0;
+	private volatile long bytesPerSecondReceived = 0;
 	private long newbytesPerSecondReceived = 0;	
 	// b/s sent
-	private long bytesPerSecondSent = 0;
+	private volatile long bytesPerSecondSent = 0;
 	private long newbytesPerSecondSent = 0;
-	private long bytesSent = 0;
-	private long bytesReceived = 0;
+	private volatile long bytesSent = 0;
+	private volatile long bytesReceived = 0;
 	public boolean byteDebug = false;
-	private Packet sendingPacket = null;
-	private boolean reconnecting = false;
+	private volatile Packet sendingPacket = null;
+	private volatile boolean reconnecting = false;
 	private String reconnectKey = "";
-	private long timeOut = 5000;
-	private long lastPinged = 0;
+	private volatile long timeOut = 5000;
+	private volatile long lastPinged = 0;
 	private StoppableThread timeOutThread;
 	private int packetsent = 0;
 	private int packetReceived = 0;
 	private boolean canReconnect = true;
-	private int reconnectAttempts = 0;
-	private boolean connected = false; // para saber si al desconectar puede reconectar o definitivamente se desconecto
+	private volatile boolean connected = false; // para saber si al desconectar puede reconectar o definitivamente se desconecto
 	private StoppableThread reconnectThread; // thread que define si la conexion caduca en el servidor
 	private long maxTimePerPacketOnSendFiled = 500;
 	private boolean lastPacketSendFileChangedByteAmount = false;
-	private HashMap<String, FileSender> filesSending = new HashMap<String, FileSender>();
-	private HashMap<String, FileReceiver> filesReceiver = new HashMap<String, FileReceiver>();
+	private final ConcurrentHashMap<String, FileSender> filesSending = new ConcurrentHashMap<String, FileSender>();
+	private final ConcurrentHashMap<String, FileReceiver> filesReceiver = new ConcurrentHashMap<String, FileReceiver>();
 	// voice chat
 	private boolean canEarn = false;
 	private boolean canSpeak = false;
 	private MicrophoneThread micThread;
 	private HashMap<Integer, AudioChannel> audioChannels = new HashMap<Integer, AudioChannel>();
 	//
-	private int answerCounter = 1;
-	private HashMap<Integer, AwaitAnswerCallback> awaitAnswers = new HashMap<Integer, AwaitAnswerCallback>();
+	private final AtomicInteger answerCounter = new AtomicInteger(1);
+	private final Object sendLock = new Object();
+	private volatile boolean disconnected;
+	private static final SecureRandom secureRandom = new SecureRandom();
+	private static final int MAX_FRAME_BYTES = FileSender.MAX_BYTES_PER_PACKET + 1024;
+	private final ConcurrentHashMap<Integer, AwaitAnswerCallback> awaitAnswers = new ConcurrentHashMap<Integer, AwaitAnswerCallback>();
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager) {
 		this(connection, packetManager, true, true);
 	}
 	public ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager, boolean startRead) {
-		this(connection, packetManager, true, true);
+		this(connection, packetManager, true, startRead);
 	}
 	protected ClientConnection(AsynchronousSocketChannel connection, ServerClientAPI packetManager, boolean createReconnectKey, boolean startRead) {
 		this.connection = connection;
@@ -143,7 +147,7 @@ public abstract class ClientConnection {
 		}
 		lastPinged = System.currentTimeMillis();
 		if (createReconnectKey) {
-			reconnectKey = new BigInteger(25, Utils.random).toString(32);
+			reconnectKey = new BigInteger(256, secureRandom).toString(32);
 			PacketGlobalReconnectDefineKey rdkPacket = new PacketGlobalReconnectDefineKey(reconnectKey);
 			rdkPacket.setSentCallback(new PacketSentCallback() {
 				@Override
@@ -166,7 +170,7 @@ public abstract class ClientConnection {
 							checkTimeOutAwaitAnswers();
 						} catch (InterruptedException e) {}
 						if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
-							System.out.println("Client connection time out! " + reconnectKey);
+							System.out.println("Client connection time out! ");
 							dropAndReconnect();
 						}
 					}
@@ -185,7 +189,7 @@ public abstract class ClientConnection {
 						}
 					} catch (InterruptedException e) {}
 					if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
-						System.out.println("Client connection time out! " + reconnectKey);
+						System.out.println("Client connection time out! ");
 						dropAndReconnect();
 					}
 				}
@@ -204,7 +208,9 @@ public abstract class ClientConnection {
 			connectionCompleted = true;
 			sendPacket(rdkPacket);
 		}
-		timeOutThread.start();
+		if (!disconnected) {
+			timeOutThread.start();
+		}
 	}
 	public ClientConnection(String ip, int port, ServerClientAPI packetManager) throws IOException {
 		this.packetManager = packetManager;
@@ -229,7 +235,7 @@ public abstract class ClientConnection {
 						}
 					}
 					if (isConnected() && !reconnecting && (lastPinged + (timeOut * 3)) - System.currentTimeMillis() <= 0) {
-						System.out.println("Server connection time out! " + reconnectKey);
+						System.out.println("Server connection time out! ");
 						dropAndReconnect();
 					}
 				}
@@ -242,17 +248,21 @@ public abstract class ClientConnection {
 					connectionCompleted = true;
 					lastPinged = System.currentTimeMillis();
 					sendPacket(new PacketGlobalNewConnection());
-					timeOutThread.start();
+					if (!disconnected) {
+						timeOutThread.start();
+					}
 					startRead();
 				}
 				@Override
 				public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
 					System.out.println("Error al conectar con el servidor " + ip + ":" + port);
 					onFailedConnect();
+					totalDisconnect(false);
 				}
 			});
 		} catch (UnresolvedAddressException ex) {
 			onFailedConnect();
+			totalDisconnect(false);
 		}
 	}
 	public ClientConnectionType getClientConnectionType() {
@@ -278,7 +288,7 @@ public abstract class ClientConnection {
 		return reconnectKey != null && !reconnectKey.isEmpty();
 	}
 	public boolean checkReconnectKey(String key) {
-		return reconnectKey.equals(key);
+		return hasReconnectKey() && key != null && MessageDigest.isEqual(reconnectKey.getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8));
 	}
 	public long getBytePerSecondSent() {
 		return bytesPerSecondSent;
@@ -295,14 +305,6 @@ public abstract class ClientConnection {
 	public long getMaxPacketSizeSend() {
 		return maxPacketSizeSend;
 	}
-	private void setMaxPacketSizeSend(long maxPacketSize) {
-		long max = getMaxBytesSenderOnFiles();
-		if (maxPacketSize < max) {
-			this.maxPacketSizeSend = max;
-		} else {
-			this.maxPacketSizeSend = maxPacketSize;
-		}
-	}
 	private long getMaxBytesSenderOnFiles() {
 		long max = -1;
 		for (FileSender sender : filesSending.values()) {
@@ -312,20 +314,8 @@ public abstract class ClientConnection {
 		}
 		return max;
 	}
-	private void restartMaxPacketSizeReceive() {
-		this.maxPacketSizeReceive = defaultMaxPacketSizeReceive;
-		System.out.println("Max packet size to receive restarted to " + Utils.getBytesScaled(maxPacketSizeSend));
-	}
 	public long getMaxPacketSizeReceive() {
 		return maxPacketSizeReceive;
-	}
-	private void setMaxPacketSizeReceive(long maxPacketSize) {
-		long max = getMaxBytesReceiverOnFiles();
-		if (maxPacketSize < max) {
-			this.maxPacketSizeReceive = max;
-		} else {
-			this.maxPacketSizeReceive = maxPacketSize;
-		}
 	}
 	private long getMaxBytesReceiverOnFiles() {
 		long max = -1;
@@ -336,11 +326,7 @@ public abstract class ClientConnection {
 		}
 		return max;
 	}
-	private void restartMaxPacketSizeSend() {
-		this.maxPacketSizeSend = defaultMaxPacketSizeSend;
-		System.out.println("Max packet size to send restarted to " + Utils.getBytesScaled(maxPacketSizeSend));
-	}
-	private void checkNeedUpdateBytesPerSecond() {
+	private synchronized void checkNeedUpdateBytesPerSecond() {
 		if ((lastBytePerSecondUpdate + 1000) - System.currentTimeMillis() <= 0) {
 			bytesPerSecondReceived = newbytesPerSecondReceived;
 			newbytesPerSecondReceived = 0;
@@ -350,379 +336,293 @@ public abstract class ClientConnection {
 		}
 	}
 	private void addPendingPacket(long time, Packet packet) {
-		if (!pendentingSendPacket.containsKey(time)) {
-			pendentingSendPacket.put(time, packet);
-		} else {
-			addPendingPacket(time + 1, packet);
+		while (pendentingSendPacket.putIfAbsent(time, packet) != null) {
+			time++;
 		}
 	}
 	public void deletePendingPacket(Packet packet) {
-		Iterator<Entry<Long, Packet>> it = pendentingSendPacket.entrySet().iterator();
-        while (it.hasNext()) {
-            Entry<Long, Packet> entry = it.next();
-            if (entry.getValue().equals(packet)) {
-                it.remove();
-                break;
-            }
-        }
+		for (Entry<Long, Packet> entry : pendentingSendPacket.entrySet()) {
+			if (entry.getValue() == packet) {
+				pendentingSendPacket.remove(entry.getKey(), packet);
+				break;
+			}
+		}
 	}
 	public void sendPacket(Packet packet) {
-		if (debugMode) {
-			System.out.println("Enviando packet " + packet.getClass().getName());
+		if (packet == null) {
+			return;
 		}
-		if (packet.hasAwaitAnswerCallback()) {
-			awaitAnswers.put(packet.getAwaitAnswerCallback().getID(), packet.getAwaitAnswerCallback());
-		}
-		if (!isConnected() || reconnecting) { // es probable que se este reconectando?
-			if (!packet.isIgnorable()) {
+		synchronized (sendLock) {
+			if (!disconnected) {
+				if (pendentingSendPacket.containsValue(packet)) {
+					return;
+				}
+				if (packet.hasAwaitAnswerCallback()) {
+					awaitAnswers.putIfAbsent(packet.getAwaitAnswerCallback().getID(), packet.getAwaitAnswerCallback());
+				}
 				addPendingPacket(System.currentTimeMillis(), packet);
 			}
-		} else if (pendentingSendPacket.isEmpty()) {
-			addPendingPacket(System.currentTimeMillis(), packet);
-			try {
-				lastTryPacketSent = System.currentTimeMillis();
-				if (byteDebug) {
-					log("send normal");
-				}
-				if (debugMode) {
-					System.out.println("enviando...");
-				}
-				send(packet);
-			} catch (WritePacketException | WritePendingException e) {
-				System.out.println("Error al enviar el packet " + packet.getClass().getName() + " intentandolo denuevo en 100 ms...");
-				tryResend(packet);	
-			}
-		} else {
-			addPendingPacket(System.currentTimeMillis(), packet);
-			if (sendingPacket == null && lastTryPacketSent == 0) {
-				System.out.println("Se intentar� forzar el envio del packet...");
-				try {
-					send(packet);
-					System.out.println("Packet enviado de forma forzada...");
-				} catch (WritePacketException | WritePendingException e) {
-					System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente est� escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
-				}
-			} else {
-				if ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0) {
-					onErrorSend();
-					System.out.println("Hace mas de 2 segundos y medio que se envio el ultimo packet. �El proceso de send esta parado? forzando el envio del packet pendiente");
-					if (sendingPacket != null) {
-						System.out.println("Intentando enviar el packet: " + sendingPacket.getClass().getName());
-					} else {
-						System.out.println("El packet pendiente parta enviar es nullo...");
-					}
-					System.out.println(lastTryPacketSent + " - " + System.currentTimeMillis() + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis())  + " - " + ((lastTryPacketSent + 2500) - System.currentTimeMillis() <= 0));
-					try {
-						if (byteDebug) {
-							log("send by error?");
-						}
-						send(packet);
-					} catch (WritePacketException | WritePendingException e) {
-						System.out.println("No se pudo enviar el packet " + packet.getClass().getName() + ", probablemente est� escribiendo un packet... Packets pendientes por enviar: " + pendentingSendPacket.size());
-					}
-				} else {
-					if (debugMode) {
-						System.out.println("Hay " + pendentingSendPacket.size() + " packets pendientes, ya hay uno enviandose? " + sendingPacket + " " + lastTryPacketSent);
-					}
-				}
-			}
 		}
+		if (disconnected) {
+			failPacket(packet, new IOException("La conexión está cerrada"));
+			return;
+		}
+		sendNextPacket();
 	}
-	private void tryResend(Packet packet) {
-		try {
-			onErrorSend();
-			System.out.println("duermiendo 100 ms...");
-			Thread.sleep(100);
-			System.out.println("intentando...");
-			try {
-				debugMode = true;
-				if (byteDebug) {
-					log("send by tryresend");
+	private void sendNextPacket() {
+		while (true) {
+			Packet packet;
+			synchronized (sendLock) {
+				if (sendingPacket != null || disconnected || reconnecting || !isConnected() || pendentingSendPacket.isEmpty()) {
+					return;
 				}
-				send(packet);
-				System.out.println("Packet correctamente enviado");
-			} catch (WritePacketException | WritePendingException e) {
-				System.out.println("Denuevo fallo el enviar el packet " + packet.getClass().getName() + " intentandolo denuevo en 100 ms...");
-				tryResend(packet);
+				packet = pendentingSendPacket.firstEntry().getValue();
+				sendingPacket = packet;
 			}
-		} catch (InterruptedException e1) {
-			e1.printStackTrace();
+			try {
+				if (send(packet)) {
+					return;
+				}
+			} catch (WritePacketException | WritePendingException exception) {
+				failPacket(packet, exception);
+			}
 		}
 	}
 	protected void startRead() {
-		if (!reading) {
+		synchronized (sendLock) {
+			if (reading || disconnected) {
+				return;
+			}
 			reading = true;
-			readNextPacket();
 		}
+		readNextPacket();
 	}
+	public void log(String message) {}
 	private void stopRead() {
 		reading = false;
 	}
-	public void log(String s) {}
-	private void send(Packet packet) throws WritePacketException, WritePendingException {
-		if (sendingPacket == null) {
+	private boolean send(final Packet packet) throws WritePacketException, WritePendingException {
+		final AsynchronousSocketChannel channel = connection;
+		synchronized (sendLock) {
+			if (sendingPacket != null && sendingPacket != packet) {
+				return true;
+			}
 			sendingPacket = packet;
-			try {
-				ByteArrayOutputStream output = new ByteArrayOutputStream();
-				ByteArrayOutputStream packetOutput = new ByteArrayOutputStream();
-				packet.deserialize(packetOutput);
-				if (packetOutput.size() + 8 < maxPacketSizeSend) {
-					int packetID = packetManager.getPacketID(packet.getClass());
-					if (packetID != 0) {
-						PacketUtilities.writeInteger(packetID, output);
-						PacketUtilities.writeInteger(packet.getPacketToClientType(), output);
-						PacketUtilities.writeLong(System.currentTimeMillis(), output);
-						PacketUtilities.writeInteger(packet.hasAwaitAnswerCallback() ? packet.getAwaitAnswerCallback().getID() : packet.getPendentingAnswer(), output);
-						for (byte b : packetOutput.toByteArray()) {
-							output.write(b);
+		}
+		try {
+			int packetID = packetManager.getPacketID(packet.getClass());
+			if (packetID == 0) {
+				failPacket(packet, new IOException("El paquete no está registrado"));
+				return false;
+			}
+			ByteArrayOutputStream output = new ByteArrayOutputStream();
+			PacketUtilities.writeInteger(packetID, output);
+			PacketUtilities.writeInteger(packet.getPacketToClientType(), output);
+			PacketUtilities.writeLong(System.currentTimeMillis(), output);
+			PacketUtilities.writeInteger(packet.hasAwaitAnswerCallback() ? packet.getAwaitAnswerCallback().getID() : packet.getPendentingAnswer(), output);
+			ByteArrayOutputStream payload = new ByteArrayOutputStream();
+			packet.deserialize(payload);
+			output.write(payload.toByteArray(), 0, payload.size());
+			if ((long) output.size() + 8 > maxPacketSizeSend || output.size() > MAX_FRAME_BYTES) {
+				failPacket(packet, new IOException("El paquete supera el límite de envío de " + maxPacketSizeSend + " bytes"));
+				return false;
+			}
+			ByteArrayOutputStream size = new ByteArrayOutputStream();
+			PacketUtilities.writeInteger(output.size(), size);
+			final ByteBuffer header = ByteBuffer.allocate(8);
+			header.put(size.toByteArray());
+			header.rewind();
+			final ByteBuffer body = ByteBuffer.wrap(output.toByteArray());
+			lastTryPacketSent = System.currentTimeMillis();
+			packet.setCurrent(lastTryPacketSent);
+			if (packet.hasAwaitAnswerCallback()) {
+				packet.getAwaitAnswerCallback().startWaiting();
+			}
+			writeFully(channel, header, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+				@Override
+				public void completed(Integer result, AsynchronousSocketChannel attachment) {
+					writeFully(channel, body, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+						@Override
+						public void completed(Integer count, AsynchronousSocketChannel socket) {
+							sent(packet);
 						}
-						ByteArrayOutputStream outputSize = new ByteArrayOutputStream();
-						PacketUtilities.writeInteger(output.size(), outputSize);
-						ByteBuffer bufSize = ByteBuffer.allocate(8);
-						bufSize.put(outputSize.toByteArray());
-						((Buffer) bufSize).rewind();
-						//bufSize.flip();
-						connection.write(bufSize, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
-							@Override
-							public void completed(Integer result, AsynchronousSocketChannel attachment) {
-								checkNeedUpdateBytesPerSecond();
-								newbytesPerSecondSent += 8;
-								//System.out.println(bs + " sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
-								ByteBuffer bufPacket = ByteBuffer.allocate(output.size());
-								bufPacket.put(output.toByteArray());
-								((Buffer) bufPacket).flip();
-								if (byteDebug) {
-									log("size sent " + Integer.toHexString(output.size()) + " " + output.size() + " " + result + " ");
-									log("intentando enviar el packet completo");
-								}
-								connection.write(bufPacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
-									@Override
-									public void completed(Integer result, AsynchronousSocketChannel attachment) {
-										lastPacketSent = System.currentTimeMillis();
-										if (byteDebug) {
-											List<Byte> bs = new ArrayList<Byte>();
-											for (byte b : bufPacket.array()) {
-												bs.add(b);
-											}
-											log("Packet sent (" + bs.size() + ") - " + bs + result);
-										}
-										checkNeedUpdateBytesPerSecond();
-										newbytesPerSecondSent += bufPacket.array().length;
-										bytesSent += bufPacket.array().length;
-										//System.out.println("Packet sent " + bufPacket.position() + " " + output.size() +" " + result + " ");
-										//System.out.println((bufPacket.position() < output.size()) + " " + bufPacket.position() + "-" +  output.size());
-										if (bufPacket.position() < output.size()) {
-											writeIncompletePacket = bufPacket;
-											writeIncompletePacket(packet);
-										} else {
-											sent(packet);
-										}
-									}
-									@Override
-									public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-										if (exc instanceof AsynchronousCloseException) {
-											dropAndReconnect();
-										}
-										System.out.println("ERROR AL ENVIAR EL PACKET ENTERO " + packet.getClass().getName());
-										exc.printStackTrace();
-									}				
-								});
-							}
-							@Override
-							public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-								if (exc instanceof AsynchronousCloseException) {
-									dropAndReconnect();
-								}
-								System.out.println("ERROR AL ENVIAR EL PACKET SIZE");
-								exc.printStackTrace();
-							}				
-						});
+						@Override
+						public void failed(Throwable exception, AsynchronousSocketChannel socket) {
+							writeFailed(channel, packet, exception);
+						}
+					});
+				}
+				@Override
+				public void failed(Throwable exception, AsynchronousSocketChannel attachment) {
+					writeFailed(channel, packet, exception);
+				}
+			});
+			return true;
+		} catch (WritePacketException | RuntimeException exception) {
+			failPacket(packet, exception);
+			return false;
+		}
+	}
+	private void writeFully(final AsynchronousSocketChannel channel, final ByteBuffer buffer,
+			final CompletionHandler<Integer, AsynchronousSocketChannel> callback) {
+		if (channel != connection || disconnected) {
+			return;
+		}
+		try {
+			channel.write(buffer, channel, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+				@Override
+				public void completed(Integer count, AsynchronousSocketChannel attachment) {
+					if (channel != connection || disconnected) {
+						return;
+					}
+					if (count < 0) {
+						callback.failed(new IOException("Fin de conexión durante el envío"), channel);
+						return;
+					}
+					recordBytes(true, count);
+					if (buffer.hasRemaining()) {
+						writeFully(channel, buffer, callback);
 					} else {
-						deletePendingPacket(sendingPacket);
-						sendingPacket = null;
-						System.err.println("El packet " + packet.getClass().getName() + " no esta registrado...");
+						callback.completed(count, channel);
 					}
-				} else {
-					deletePendingPacket(sendingPacket);
-					sendingPacket = null;
-					System.err.println("No se ha enviado el packet " + packet.getClass().getSimpleName() + " porque ocupa mas de " + Utils.getBytesScaled(maxPacketSizeSend) + "(" + maxPacketSizeSend + ")" +  " (" + Utils.getBytesScaled(packetOutput.size() + 8) + " (" + (packetOutput.size() + 8) + "bytes))");
 				}
-			} catch (WritePacketException | WritePendingException e) {
-				System.out.println("Error al escribir " + packet.getClass().getName());
-				throw e;
-			}		
+				@Override
+				public void failed(Throwable exception, AsynchronousSocketChannel attachment) {
+					callback.failed(exception, channel);
+				}
+			});
+		} catch (RuntimeException exception) {
+			callback.failed(exception, channel);
 		}
 	}
-	private void writeIncompletePacket(Packet packet) {
-		//System.out.println("Packet incompleto leido, queda por leer " + (nextPacketSize - incompletePacket.position()) + " bytes");
-		int prePosition = writeIncompletePacket.position();
-		connection.write(writeIncompletePacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
-			@Override
-			public void completed(Integer result, AsynchronousSocketChannel attachment) {
-				//System.out.println((writeIncompletePacket.position()) + " total de " + writeIncompletePacket.limit());
-				int writed = writeIncompletePacket.position() - prePosition;
-				checkNeedUpdateBytesPerSecond();
-				newbytesPerSecondSent += writed;
-				bytesSent += writed;
-				if (writeIncompletePacket.position() < writeIncompletePacket.limit()) {
-					writeIncompletePacket(packet);
-				} else {
-					sent(packet);
-				}
-			}
-			@Override
-			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-				if (exc instanceof AsynchronousCloseException) {
-					dropAndReconnect();
-				}
-				System.out.println("ERROR AL ESCRIBIR EL INCOMPLETO PACKET PARA ENVIAR");							
-			}        	
-		});
+	private void writeFailed(AsynchronousSocketChannel channel, Packet packet, Throwable failure) {
+		if (channel == connection && !disconnected) {
+			Exception exception = failure instanceof Exception ? (Exception) failure : new IOException("Error de escritura", failure);
+			failPacket(packet, exception);
+			dropAndReconnect();
+		}
 	}
-	private void sent(Packet packet) {
-		packetsent++;
-		//pendentingSendPacket.remove(packet);
-        deletePendingPacket(packet);
-		if (packet.hasSentCallback()) {
-			if (byteDebug) {
-				System.out.println("Ejecutando callback del packet ");
-			}
-			packet.getSentCallback().onSent(System.currentTimeMillis() - packet.getCurrent());
-		}
-		if (packet instanceof PacketGlobalDisconnect) {
-			canReconnect = false;
-		}
-		if (debugMode) {
-			System.out.println("Packet enviado en " + (System.currentTimeMillis() - lastTryPacketSent) + " ms");
-			System.out.println("Comprobando si tiene packets pendientes que enviar...");
-		}
-		lastTryPacketSent = 0;
-		if (!pendentingSendPacket.isEmpty()) {
-			//Packet nextPacket = pendentingSendPacket.get(pendentingSendPacket.size()-1);
-			Packet nextPacket = pendentingSendPacket.firstEntry().getValue();
-			if (debugMode) {
-				System.out.println("Pr�ximo packet pendiente " + nextPacket.getClass().getName() + " para enviar");
-			}
-			if (nextPacket != null) {
-				try {
-					lastTryPacketSent = System.currentTimeMillis();
-					if (byteDebug) {
-						log("send by nextPacket");
-					}
-					sendingPacket = null;
-					send(nextPacket);
-					if (debugMode) {
-						System.out.println("Enviando correctamente, desactivando debugmode");
-						debugMode = false;
-					}
-				} catch (WritePacketException | WritePendingException e) {
-					tryResend(nextPacket);
-				}
-			} else {
-				System.out.println("Ha fallado el packet, se estaba intentando enviar un packet nullo? pendentingSendPacket: " + pendentingSendPacket.size());
-				System.out.println("Para asegurar la conexi�n, se ha eliminado este packet de la lista de packets pendientes...");
-				//pendentingSendPacket.remove(nextPacket);
-				deletePendingPacket(nextPacket);
+	private void failPacket(Packet packet, Exception exception) {
+		synchronized (sendLock) {
+			deletePendingPacket(packet);
+			if (sendingPacket == packet) {
 				sendingPacket = null;
 			}
-		} else {
-			if (debugMode) {
-				System.out.println("No hay packets pendientes que enviar...");
+		}
+		try {
+			if (packet.hasAwaitAnswerCallback()) {
+				AwaitAnswerCallback callback = packet.getAwaitAnswerCallback();
+				awaitAnswers.remove(callback.getID(), callback);
+				callback.fail(exception);
 			}
+		} catch (RuntimeException callbackFailure) {
+			log("Error en el callback de respuesta");
+		}
+		try {
+			if (packet.hasSentCallback()) {
+				packet.getSentCallback().fail(exception);
+			}
+			onErrorSend();
+			log(exception.getMessage());
+		} catch (RuntimeException callbackFailure) {
+			log("Error en el callback de envío");
+		}
+	}
+	private void sent(Packet packet) {
+		synchronized (sendLock) {
+			deletePendingPacket(packet);
 			sendingPacket = null;
+			lastTryPacketSent = 0;
+		}
+		packetsent++;
+		lastPacketSent = System.currentTimeMillis();
+		try {
+			if (packet.hasSentCallback()) {
+				packet.getSentCallback().complete(lastPacketSent - packet.getCurrent());
+			}
+		} catch (RuntimeException callbackFailure) {
+			log("Error en el callback de envío");
+		} finally {
+			if (packet instanceof PacketGlobalDisconnect) {
+				canReconnect = false;
+				totalDisconnect();
+			} else {
+				sendNextPacket();
+			}
 		}
 	}
 	private void readNextPacket() {
-		ByteBuffer bufSize = ByteBuffer.allocate(8);
-		connection.read(bufSize, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+		final AsynchronousSocketChannel channel = connection;
+		final ByteBuffer header = ByteBuffer.allocate(8);
+		readFully(channel, header, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
 			@Override
-			public void completed(Integer result, AsynchronousSocketChannel attachment) {
-				if (result == -1) {
-					dropAndReconnect();
-				} else {
-					//System.out.println(attachment.isOpen());
-					/**
-	                List<Byte> bs = new ArrayList<Byte>();
-	                for (byte b : bufSize.array()) {
-	                	bs.add(b);
-	                }
-					 */
-					//System.out.println(bs + " Received " + result);
-					checkNeedUpdateBytesPerSecond();
-					newbytesPerSecondReceived += 8; // porque al recibir el numero de bytes, el numero pesa 8 bytes
-					bytesReceived += 8;
-					try {
-						nextPacketSize = PacketUtilities.getInteger(new ByteArrayInputStream(bufSize.array()));
-						if (nextPacketSize + 8 < maxPacketSizeReceive) {
-							ByteBuffer bufPacket = ByteBuffer.allocate(nextPacketSize);
-							//System.out.println("illo q pasa intentando coger el packet de " + nextPacketSize);
-							connection.read(bufPacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
-								@Override
-								public void completed(Integer result, AsynchronousSocketChannel attachment) {
-									//System.out.println("test");
-									//bufPacket.flip();
-									checkNeedUpdateBytesPerSecond();
-									newbytesPerSecondReceived += bufPacket.position();
-									bytesReceived += bufPacket.position();
-									//System.out.println(bs + " Received fully " + bufPacket.position() + " " + bufPacket.limit() + " " + bufPacket.capacity() + " " + nextPacketSize);
-									if (bufPacket.position() < nextPacketSize) {
-										readIncompletePacket = bufPacket;
-										readIncompletePacket();
-									} else {
-										read(bufPacket);
-									}
-								}
-								@Override
-								public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-									if (exc instanceof AsynchronousCloseException) {
-										dropAndReconnect();
-									}
-									System.out.println("ERROR AL COGER EL PACKET RECIBIDO");
-									exc.printStackTrace();
-								}        	
-							});
-						} else {
-							System.err.println("No se ha leido el siguiente packet porque ocupa mas de " + Utils.getBytesScaled(maxPacketSizeReceive) + "(" + maxPacketSizeReceive + ")" +  " (" + Utils.getBytesScaled(nextPacketSize + 8) + " (" + (nextPacketSize + 8) + "bytes))");
+			public void completed(Integer count, AsynchronousSocketChannel attachment) {
+				try {
+					nextPacketSize = PacketUtilities.getInteger(new ByteArrayInputStream(header.array()));
+					if (nextPacketSize <= 0 || nextPacketSize > MAX_FRAME_BYTES || (long) nextPacketSize + 8 > maxPacketSizeReceive) {
+						log("Tamaño de paquete recibido inválido");
+						totalDisconnect();
+						return;
+					}
+					final ByteBuffer body = ByteBuffer.allocate(nextPacketSize);
+					readFully(channel, body, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+						@Override
+						public void completed(Integer size, AsynchronousSocketChannel socket) {
+							read(body);
 						}
-					} catch (Exception e) {
-						//e.printStackTrace();
-						System.out.println("Error al leer el packet recibido");
-						dropAndReconnect();
+						@Override
+						public void failed(Throwable exception, AsynchronousSocketChannel socket) {
+							readFailed(channel);
+						}
+					});
+				} catch (ReadPacketException | RuntimeException exception) {
+					totalDisconnect();
+				}
+			}
+			@Override
+			public void failed(Throwable exception, AsynchronousSocketChannel attachment) {
+				readFailed(channel);
+			}
+		});
+	}
+	private void readFully(final AsynchronousSocketChannel channel, final ByteBuffer buffer,
+			final CompletionHandler<Integer, AsynchronousSocketChannel> callback) {
+		if (channel != connection || disconnected || !reading) {
+			return;
+		}
+		try {
+			channel.read(buffer, channel, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
+				@Override
+				public void completed(Integer count, AsynchronousSocketChannel attachment) {
+					if (channel != connection || disconnected || !reading) {
+						return;
+					}
+					if (count < 0) {
+						callback.failed(new IOException("Fin de conexión durante la lectura"), channel);
+						return;
+					}
+					recordBytes(false, count);
+					if (buffer.hasRemaining()) {
+						readFully(channel, buffer, callback);
+					} else {
+						callback.completed(count, channel);
 					}
 				}
-			}
-			@Override
-			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-				dropAndReconnect();
-			}        	
-		});
-	}
-	private void readIncompletePacket() {
-		//System.out.println("Packet incompleto leido, queda por leer " + (nextPacketSize - incompletePacket.position()) + " bytes");
-		int prePosition = readIncompletePacket.position();
-		connection.read(readIncompletePacket, connection, new CompletionHandler<Integer, AsynchronousSocketChannel>() {
-			@Override
-			public void completed(Integer result, AsynchronousSocketChannel attachment) {
-				//System.out.println((incompletePacket.position()) + " total de " + nextPacketSize);
-				int readed = readIncompletePacket.position() - prePosition;
-				checkNeedUpdateBytesPerSecond();
-				newbytesPerSecondReceived += readed;
-				bytesReceived += readed;
-				if (readIncompletePacket.position() < nextPacketSize) {
-					readIncompletePacket();
-				} else {
-					read(readIncompletePacket);
+				@Override
+				public void failed(Throwable exception, AsynchronousSocketChannel attachment) {
+					callback.failed(exception, channel);
 				}
-			}
-			@Override
-			public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-				if (exc instanceof AsynchronousCloseException) {
-					dropAndReconnect();
-				}
-				System.out.println("ERROR AL COGER EL INCOMPLETO PACKET RECIBIDO");							
-			}        	
-		});
+			});
+		} catch (RuntimeException exception) {
+			callback.failed(exception, channel);
+		}
 	}
+	private void readFailed(AsynchronousSocketChannel channel) {
+		if (channel == connection && !disconnected) {
+			dropAndReconnect();
+		}
+	}
+
 	private void read(ByteBuffer bufPacket) {
 		ByteArrayInputStream input = new ByteArrayInputStream(bufPacket.array());
 		int packetID = 0;
@@ -758,12 +658,10 @@ public abstract class ClientConnection {
 				packet.setPendentingAnswer(awaitAnswer);
 				packet.setCurrent(current);
 				downPing = System.currentTimeMillis() - packet.getCurrent();
-				if (awaitAnswer != 0 && awaitAnswers.containsKey(awaitAnswer)) {
-					AwaitAnswerCallback awaitAnswerCallback = awaitAnswers.get(awaitAnswer);
-					if (awaitAnswerCallback != null && awaitAnswerCallback.isCorrectPacket(packet)) {
-						awaitAnswerCallback.onAnswer(packet);
-					}
-					awaitAnswers.remove(awaitAnswer);
+				AwaitAnswerCallback awaitAnswerCallback = awaitAnswers.get(awaitAnswer);
+				if (awaitAnswer != 0 && awaitAnswerCallback != null && awaitAnswerCallback.isCorrectPacket(packet)
+						&& awaitAnswers.remove(awaitAnswer, awaitAnswerCallback)) {
+					awaitAnswerCallback.complete(packet);
 				} else {
 					if (packet.getPacketToClientType() == 0) {
 						if (packet instanceof PacketGlobalAskNewConnection) {
@@ -796,124 +694,7 @@ public abstract class ClientConnection {
 								//System.out.println("Ping: " + (System.currentTimeMillis() - packet.getCurrent()) + "ms up-" + bytesPerSecondsent + " down-" + bytesPerSecondReceived);
 							}
 							onPing();
-						} else if (packet instanceof PacketFileCanSent) {
-							PacketFileCanSent solicitudePacket = (PacketFileCanSent) packet;
-							boolean request = canReceiveFile(solicitudePacket.getPath(), solicitudePacket.getFileType(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght());
-							if (request) {
-								setMaxPacketSizeReceive(solicitudePacket.getBytesPerPacket() + 50);
-								filesReceiver.put(solicitudePacket.getCode(), new FileReceiver(solicitudePacket.getCode(), solicitudePacket.getBytesPerPacket(), solicitudePacket.getFileLenght(), new File("").getAbsolutePath() + "/" + solicitudePacket.getPath()));
-							}
-							sendPacket(new PacketFileSentRequest(solicitudePacket.getCode(), request));
-						} else if (packet instanceof PacketFileSentRequest) {
-							PacketFileSentRequest requestPacket = (PacketFileSentRequest) packet;
-							FileSender fileSender = filesSending.get(requestPacket.getCode());
-							if (requestPacket.canSent()) {
-								if (fileSender != null) {
-									fileSender.onStart();
-									setMaxPacketSizeSend(fileSender.getBytesPerPacket() + 50);
-									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
-								} else {
-									System.out.println("Se acepto el envio del archivo " + requestPacket.getCode() + " pero el FileSender no estaba creado!");
-								}
-							} else {
-								if (fileSender != null) {
-									fileSender.onReject();
-								}
-								System.out.println("No se acepto el envio del archivo " + requestPacket.getCode());
-							}
-						} else if (packet instanceof PacketFilePartOfFile) {
-							PacketFilePartOfFile partOfFilePacket = (PacketFilePartOfFile) packet;
-							if (filesReceiver.containsKey(partOfFilePacket.getCode())) {
-								FileReceiver fileReceiver = filesReceiver.get(partOfFilePacket.getCode());
-								if (fileReceiver.received(partOfFilePacket.getBytes())) {
-									sendPacket(new PacketFilePartOfFileReceived(fileReceiver.getCode(), partOfFilePacket.getBytes().length));
-									onReceibeFilePart(fileReceiver);
-									if (fileReceiver.isFinished()) {
-										long max = getMaxBytesReceiverOnFiles();
-										if (max == -1) {
-											restartMaxPacketSizeReceive();
-										} else {
-											setMaxPacketSizeReceive(max + 50);
-										}
-										System.out.println("File " + fileReceiver.getFilePath() + " downloaded succesfully in " + fileReceiver.getReceivedTime() + "ms!");
-										onReceiveFile(fileReceiver.getFilePath(), fileReceiver.getFileType(), fileReceiver.getFileLenght());
-									}
-								} else {
-									System.out.println("Se envi� la cancelaci�n del envio del archivo " + fileReceiver.getCode());
-									sendPacket(new PacketFileCancelSend(fileReceiver.getCode()));
-								}
-							}
-						} else if (packet instanceof PacketFilePartOfFileReceived) {
-							PacketFilePartOfFileReceived partReceivedPacket = (PacketFilePartOfFileReceived) packet;
-							if (filesSending.containsKey(partReceivedPacket.getCode())) {
-								FileSender fileSender = filesSending.get(partReceivedPacket.getCode());
-								long diff = fileSender.sent(partReceivedPacket.getBytesLenght());
-								fileSender.onFilePartSent(fileSender.getPorcentSent(), fileSender.getSent(), fileSender.getFileLenght());
-								if (fileSender.isFinished()) {
-									long max = getMaxBytesSenderOnFiles();
-									if (max == -1) {
-										restartMaxPacketSizeSend();
-									} else {
-										setMaxPacketSizeSend(max + 50);
-									}
-									System.out.println("File " + fileSender.getFilePath() + " enviado completo en " + fileSender.getSentTime() + "ms!");
-									fileSender.onFinish();
-								} else {
-									System.out.println("Se detecto un envio con una diferencia de " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
-									if (diff < maxTimePerPacketOnSendFiled) {
-										if (!lastPacketSendFileChangedByteAmount) {
-											double porcent = ((double) maxTimePerPacketOnSendFiled/diff) * 100;
-											long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
-											if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
-												System.out.println("El nuevo envio subi� +" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
-												sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
-												lastPacketSendFileChangedByteAmount = true;
-											}
-										} else {
-											System.out.println("el envio anteerior se cambio " + diff + "ms de " + fileSender.getBytesPerPacket() + "(" + Utils.getBytesScaled(fileSender.getBytesPerPacket()) + ")");
-											lastPacketSendFileChangedByteAmount = false;
-										}
-									} else if (diff >= maxTimePerPacketOnSendFiled + 150) {
-										double porcent = ((double) (maxTimePerPacketOnSendFiled + 150)/diff) * 100;
-										long newBytesPerPacket = (long) (fileSender.getBytesPerPacket()*porcent)/100;
-										if (canChangeBytesPerPacket(fileSender.getCode(), fileSender.getFilePath(), newBytesPerPacket)) {
-											System.out.println("El nuevo envio baj� -" + porcent + "% " + newBytesPerPacket + "(" + Utils.getBytesScaled(newBytesPerPacket) + ")");
-											fileSender.setBytesPerPacket(newBytesPerPacket);
-											sendPacket(new PacketFileCanChangeBytesPerPacket(fileSender.getCode(), newBytesPerPacket));
-										}
-									}
-									sendPacket(new PacketFilePartOfFile(fileSender.getCode(), fileSender.getNextFileBytes()));
-								}
-							} else {
-								System.out.println("No se pudo enviar el archivo porque no existe el sender");
-							}
-						} else if (packet instanceof PacketFileCancelSend) {
-							PacketFileCancelSend cancelPacket = (PacketFileCancelSend) packet;
-							if (filesSending.containsKey(cancelPacket.getCode())) {
-								System.out.println("Se ha cancelado el envio del archivo " + filesSending.get(cancelPacket.getCode()).getFilePath() + " con el codigo " + cancelPacket.getCode());
-								filesSending.remove(cancelPacket.getCode());
-							} else {
-								System.out.println("Se ha intentando cancelar el archivo con el codigo " + cancelPacket.getCode() + " pero este sender no existia");
-							}
-						} else if (packet instanceof PacketFileCanChangeBytesPerPacket) {
-							PacketFileCanChangeBytesPerPacket canChange = (PacketFileCanChangeBytesPerPacket) packet;
-							if (filesSending.containsKey(canChange.getCode())) {
-								filesSending.get(canChange.getCode()).setBytesPerPacket(canChange.getBytes());
-								setMaxPacketSizeSend(canChange.getBytes() + 50);
-								System.out.println("Se ha cambiado el numero de bytes por packet del sender " + canChange.getCode() + " a " + canChange.getBytes() + "(" + Utils.getBytesScaled(canChange.getBytes()) + ")");
-							} else if (filesReceiver.containsKey(canChange.getCode())) {
-								FileReceiver receiver = filesReceiver.get(canChange.getCode());
-								if (!receiver.isFinished() && canChangeBytesPerPacket(canChange.getCode(), receiver.getFilePath(), canChange.getBytes())) {
-									receiver.setBytesPerPacket(canChange.getBytes());
-									setMaxPacketSizeReceive(canChange.getBytes() + 50);
-									sendPacket(canChange);
-									System.out.println("Se ha aceptado el cambio de bytes per packet del receiver " + canChange.getCode() + " a " + (canChange.getBytes() + 50) + "(" + Utils.getBytesScaled(canChange.getBytes() + 50) + ")");
-								} else {
-									System.out.println("Se ha denegado el cambio de bytes per packet del receiver " + canChange.getCode() + " a " + (canChange.getBytes() + 50) + "(" + Utils.getBytesScaled(canChange.getBytes() + 50) + ")");
-								}
-							} else {
-								System.out.println("No se ha podido cambiar el numro de bytes por paquete en el envio de packet " + canChange.getCode() + " no se ha encontrado su sender");
-							}
+						} else if (handleFilePacket(packet)) {
 						} else if (packet instanceof PacketVoiceChatReceive) {
 							PacketVoiceChatReceive vcReceive = (PacketVoiceChatReceive) packet;
 							earn(vcReceive);
@@ -928,9 +709,9 @@ public abstract class ClientConnection {
 			} else {
 				System.err.println("Packet recibido con ID " + packetID + " no registrado...");
 			}
-		} catch (ReadPacketException e) {
-			System.err.println("Error al obtener la id del packet, posiblemente corrupto");
-			e.printStackTrace();
+		} catch (ReadPacketException | RuntimeException exception) {
+			log("Error al procesar el paquete recibido");
+			totalDisconnect();
 		} finally {
 			nextPacketSize = 0;
 			if (reading) {
@@ -965,8 +746,11 @@ public abstract class ClientConnection {
 		if (fileSender.getCode() == null || fileSender.getCode().isEmpty()) {
 			fileSender.setCode(getRandomFileCode());
 		}
-		if (!filesSending.containsKey(fileSender.getCode())) {
-			filesSending.put(fileSender.getCode(), fileSender);
+		if (fileSender.getBytesPerPacket() <= 0 || fileSender.getBytesPerPacket() > FileSender.MAX_BYTES_PER_PACKET || disconnected || reconnecting) {
+			fileSender.onReject();
+			return null;
+		}
+		if (filesSending.putIfAbsent(fileSender.getCode(), fileSender) == null) {
 			sendPacket(new PacketFileCanSent(fileSender.getCode(), fileSender.getFileType(), dest, fileSender.getBytesPerPacket(), fileSender.getFileLenght()));
 			return fileSender.getCode();
 		} else {
@@ -989,108 +773,76 @@ public abstract class ClientConnection {
 			return result;
 		}
 	}
-	public void reconnect(AsynchronousSocketChannel connection) {
+	public void reconnect(AsynchronousSocketChannel channel) {
+		synchronized (sendLock) {
+			if (disconnected) {
+				try {
+					channel.close();
+				} catch (IOException exception) {
+					log("Error al cerrar una reconexión");
+				}
+				return;
+			}
+			connection = channel;
+			connectionCompleted = true;
+			reconnecting = false;
+			sendingPacket = null;
+			lastPinged = System.currentTimeMillis();
+		}
 		if (reconnectThread != null) {
 			reconnectThread.kill();
-			reconnectThread = null;
 		}
-		try {
-			if (this.connection != null && this.connection.isOpen()) {
-				this.connection.close();
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		this.connection = connection;
 		startRead();
-		lastPinged = System.currentTimeMillis();
-		reconnecting = false;
 		onReconnect();
+		sendNextPacket();
 	}
 	public void dropAndReconnect() {
-		if (!hasReconnectKey()) {
-			disconnect();
-		} else if (connected && !reconnecting) {
-			if (canReconnect) {
-				reconnecting = true;
-				try {
-					onDropCanReconnect();
-					if (connection != null && connection.isOpen()) {
-						connection.close();
-						stopRead();
-					}
-					if (clientConnectionType.equals(ClientConnectionType.CLIENT_TO_SERVER)) {
-						if (reconnectAttempts <= 3) {
-							System.out.println("Connection drop, try reconnect in " + (reconnectAttempts*3) + "s attempt " + reconnectAttempts + "/3...");
-							new Thread() {
-								@Override
-								public void run() {
-									try {
-										sleep(reconnectAttempts++*3000);
-										connection = AsynchronousSocketChannel.open();
-										connection.connect(new InetSocketAddress(ip, port), connection, new CompletionHandler<Void, AsynchronousSocketChannel>() {
-											@Override
-											public void completed(Void result, AsynchronousSocketChannel attachment) {
-												lastPinged = System.currentTimeMillis();
-												try {
-													if (sendingPacket != null) {
-														if (!sendingPacket.isIgnorable()) {
-															addPendingPacket(System.currentTimeMillis(), sendingPacket);
-														}
-														sendingPacket = null;
-													}
-													send(new PacketGlobalReconnect(reconnectKey));
-													System.out.println("Successfully reconnected");
-													reconnectAttempts = 0;
-													reconnecting = false;
-													onReconnect();
-												} catch (WritePendingException | WritePacketException e) {
-													e.printStackTrace();
-												}
-												startRead();
-											}
-											@Override
-											public void failed(Throwable exc, AsynchronousSocketChannel attachment) {
-												System.out.println("Error al conectar con el servidor " + ip + ":" + port + " , intentando denuevo...");
-												reconnecting = false;
-												dropAndReconnect();
-											}
-										});
-									} catch (InterruptedException e) {
-										e.printStackTrace();
-									} catch (IOException e) {
-										e.printStackTrace();
-									}
-								}
-							}.start();
-						} else {
-							System.out.println("Connection drop tried reconnect 3/3, connection finally dropped, disconnecting...");
-							disconnect();
-						}
-					} else {
-						System.out.println("Connection of client dropped, they can reconnect if this take more 30 seconds it will be disconnect.");
-						reconnectThread = new StoppableThread() {
-							@Override
-							public void run() {
-								try {
-									sleep(30000);
-									System.out.println("Connection take more 30 seconds, disconnected.");
-									disconnect();
-								} catch (InterruptedException e) {}
-							}
-						};
-						reconnectThread.start();
-					}
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			} else {
-				totalDisconnect();
+		synchronized (sendLock) {
+			if (disconnected || reconnecting) {
+				return;
 			}
+			reconnecting = true;
+			reading = false;
+			connectionCompleted = false;
+			sendingPacket = null;
 		}
+		try {
+			if (connection != null) {
+				connection.close();
+			}
+		} catch (IOException exception) {
+			log("Error al cerrar el canal interrumpido");
+		}
+		clearFileTransfers();
+		if (!hasReconnectKey() || !canReconnect || !connected) {
+			totalDisconnect();
+			return;
+		}
+		try {
+			onDropCanReconnect();
+		} catch (RuntimeException exception) {
+			totalDisconnect();
+			return;
+		}
+		reconnectThread = new StoppableThread() {
+			@Override
+			public void run() {
+				if (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER) {
+					reconnectClient();
+				} else {
+					try {
+						sleep(30000);
+						totalDisconnect();
+					} catch (InterruptedException exception) {
+						interrupt();
+					}
+				}
+			}
+		};
+		reconnectThread.start();
 	}
 	public void disconnect() {
-		if (!reconnecting && connection.isOpen()) {
+		if (!disconnected && !reconnecting && isConnected()) {
 			sendPacket(new PacketGlobalDisconnect());
 		} else {
 			totalDisconnect();
@@ -1098,22 +850,60 @@ public abstract class ClientConnection {
 		
 	}
 	private void totalDisconnect() {
-		connected = false;
-		reconnecting = false;
+		totalDisconnect(true);
+	}
+	private void totalDisconnect(boolean notify) {
+		List<Packet> pending;
+		synchronized (sendLock) {
+			if (disconnected) {
+				return;
+			}
+			disconnected = true;
+			connected = false;
+			connectionCompleted = false;
+			reconnecting = false;
+			reading = false;
+			pending = new ArrayList<Packet>(pendentingSendPacket.values());
+			pendentingSendPacket.clear();
+			sendingPacket = null;
+		}
 		try {
-			if (connection != null && connection.isOpen()) {
+			if (connection != null) {
 				connection.close();
 			}
-			onDisconnect();
-		} catch (IOException e) {
-			e.printStackTrace();
+		} catch (IOException exception) {
+			log("Error al cerrar la conexión");
 		}
-		ArrayList<AwaitAnswerCallback> cloned = new ArrayList<AwaitAnswerCallback>(awaitAnswers.values());
-		awaitAnswers.clear();
-		for (AwaitAnswerCallback aac : cloned) {
-			aac.onTimeOut();
+		IOException failure = new IOException("La conexión está cerrada");
+		for (Packet packet : pending) {
+			failPacket(packet, failure);
 		}
-		if (micThread != null && micThread.isAlive()) {
+		for (Entry<Integer, AwaitAnswerCallback> entry : awaitAnswers.entrySet()) {
+			AwaitAnswerCallback callback = entry.getValue();
+			if (awaitAnswers.remove(entry.getKey(), callback)) {
+				try {
+					callback.fail(failure);
+				} catch (RuntimeException exception) {
+					log("Error en el callback de desconexión");
+				}
+			}
+		}
+		synchronized (this) {
+			for (FileReceiver receiver : filesReceiver.values()) {
+				receiver.close();
+			}
+			filesReceiver.clear();
+			List<FileSender> senders = new ArrayList<FileSender>(filesSending.values());
+			filesSending.clear();
+			for (FileSender sender : senders) {
+				try {
+					sender.onReject();
+				} catch (RuntimeException exception) {
+					log("Error al cancelar un archivo");
+				}
+			}
+		}
+		if (micThread != null) {
 			micThread.kill();
 			micThread = null;
 		}
@@ -1121,17 +911,22 @@ public abstract class ClientConnection {
 			channel.kill();
 		}
 		audioChannels.clear();
-		if (timeOutThread != null && timeOutThread.isAlive()) {
-			try {
-				timeOutThread.kill();
-			} catch(Exception ex) {}
+		if (timeOutThread != null) {
+			timeOutThread.kill();
 		}
-		if (reconnectThread != null && reconnectThread.isAlive()) {
+		if (reconnectThread != null) {
 			reconnectThread.kill();
+		}
+		if (notify) {
+			try {
+				onDisconnect();
+			} catch (RuntimeException exception) {
+				log("Error en el callback de desconexión");
+			}
 		}
 	}
 	public boolean isConnected() {
-		return connection != null && connection.isOpen() && connectionCompleted;
+		return !disconnected && connection != null && connection.isOpen() && connectionCompleted;
 	}
 	public long getDownPing() {
 		return downPing;
@@ -1221,20 +1016,30 @@ public abstract class ClientConnection {
 	}
 	/*
 	 * En la parte del servidor deberemos enviar este packet al resto de clientes
-	 * Antes deberemos de pasarlo a PacketVoiceChatReceive con el metodo que est�
+	 * Antes deberemos de pasarlo a PacketVoiceChatReceive con el metodo que está
 	 * integrado dentro de la clase del paquete toSend(int channelID)
-	 * La ID del canal ser� la misma ID del cliente.
+	 * La ID del canal será la misma ID del cliente.
 	 */
 	public void onSpeak(PacketVoiceChatSend packet) {}
 	public int getNextAwaitAnswerID() {
-		return answerCounter++;
+		int id;
+		do {
+			int sequence = answerCounter.getAndIncrement() & Integer.MAX_VALUE;
+			id = clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT ? -sequence : sequence;
+		} while (id == 0 || awaitAnswers.containsKey(id));
+		return id;
 	}
 	private void checkTimeOutAwaitAnswers() {
 		ArrayList<AwaitAnswerCallback> cloned = new ArrayList<AwaitAnswerCallback>(awaitAnswers.values());
 		for (AwaitAnswerCallback aac : cloned) {
 			if (aac.isTimeOut()) {
-				aac.onTimeOut();
-				awaitAnswers.remove(aac.getID());
+				if (awaitAnswers.remove(aac.getID(), aac)) {
+					try {
+						aac.fail(new IOException("Tiempo de espera agotado"));
+					} catch (RuntimeException exception) {
+						log("Error en el callback de tiempo de espera");
+					}
+				}
 			}
 		}
 	}
@@ -1242,5 +1047,258 @@ public abstract class ClientConnection {
 		timeOutThread.kill();
 		stopRead();
 		connection = null;
+	}
+
+	private synchronized boolean handleFilePacket(Packet packet) {
+		if (packet instanceof PacketFileCanSent) {
+			PacketFileCanSent request = (PacketFileCanSent) packet;
+			boolean accepted = request.getCode() != null && !request.getCode().isEmpty() && request.getCode().length() <= 128
+					&& !filesReceiver.containsKey(request.getCode())
+					&& request.getBytesPerPacket() > 0 && request.getBytesPerPacket() <= FileSender.MAX_BYTES_PER_PACKET
+					&& request.getFileLenght() >= 0
+					&& canReceiveFile(request.getPath(), request.getFileType(), request.getBytesPerPacket(), request.getFileLenght());
+			FileReceiver receiver = null;
+			if (accepted) {
+				receiver = new FileReceiver(request.getCode(), request.getBytesPerPacket(), request.getFileLenght(),
+						request.getPath(), getFileReceiveDirectory());
+				accepted = receiver.isReady();
+				if (accepted && !receiver.isFinished()) {
+					filesReceiver.put(request.getCode(), receiver);
+				} else if (!accepted) {
+					receiver.close();
+				}
+			}
+			refreshFileLimits();
+			sendPacket(new PacketFileSentRequest(request.getCode(), accepted));
+			if (accepted && receiver.isFinished()) {
+				onReceiveFile(receiver.getFilePath(), receiver.getFileType(), receiver.getFileLenght());
+			}
+		} else if (packet instanceof PacketFileSentRequest) {
+			PacketFileSentRequest response = (PacketFileSentRequest) packet;
+			FileSender sender = filesSending.get(response.getCode());
+			if (sender != null) {
+				if (response.canSent()) {
+					sender.onStart();
+					if (sender.isFinished()) {
+						filesSending.remove(sender.getCode(), sender);
+						sender.onFinish();
+					} else {
+						sendNextFilePart(sender);
+					}
+				} else {
+					cancelFile(response.getCode(), false);
+				}
+			}
+		} else if (packet instanceof PacketFilePartOfFile) {
+			PacketFilePartOfFile part = (PacketFilePartOfFile) packet;
+			FileReceiver receiver = filesReceiver.get(part.getCode());
+			if (receiver != null) {
+				if (receiver.received(part.getBytes())) {
+					sendPacket(new PacketFilePartOfFileReceived(part.getCode(), part.getBytes().length));
+					onReceibeFilePart(receiver);
+					if (receiver.isFinished()) {
+						filesReceiver.remove(receiver.getCode(), receiver);
+						refreshFileLimits();
+						onReceiveFile(receiver.getFilePath(), receiver.getFileType(), receiver.getFileLenght());
+					}
+				} else {
+					cancelFile(part.getCode(), true);
+				}
+			}
+		} else if (packet instanceof PacketFilePartOfFileReceived) {
+			PacketFilePartOfFileReceived response = (PacketFilePartOfFileReceived) packet;
+			FileSender sender = filesSending.get(response.getCode());
+			if (sender != null) {
+				long elapsed = sender.sent(response.getBytesLenght());
+				if (elapsed < 0) {
+					cancelFile(response.getCode(), true);
+				} else {
+					sender.onFilePartSent(sender.getPorcentSent(), sender.getSent(), sender.getFileLenght());
+					if (sender.isFinished()) {
+						filesSending.remove(sender.getCode(), sender);
+						refreshFileLimits();
+						sender.onFinish();
+					} else {
+						adaptFilePart(sender, elapsed);
+					}
+				}
+			}
+		} else if (packet instanceof PacketFileCancelSend) {
+			cancelFile(((PacketFileCancelSend) packet).getCode(), false);
+		} else if (packet instanceof PacketFileCanChangeBytesPerPacket) {
+			PacketFileCanChangeBytesPerPacket change = (PacketFileCanChangeBytesPerPacket) packet;
+			long bytes = change.getBytes();
+			FileSender sender = filesSending.get(change.getCode());
+			FileReceiver receiver = filesReceiver.get(change.getCode());
+			if (bytes > 0 && bytes <= FileSender.MAX_BYTES_PER_PACKET) {
+				if (sender != null && canChangeBytesPerPacket(change.getCode(), sender.getFilePath(), bytes)) {
+					sender.setBytesPerPacket(bytes);
+				} else if (receiver != null && canChangeBytesPerPacket(change.getCode(), receiver.getFilePath(), bytes)) {
+					receiver.setBytesPerPacket(bytes);
+					refreshFileLimits();
+					sendPacket(change);
+				}
+			}
+			refreshFileLimits();
+		} else {
+			return false;
+		}
+		return true;
+	}
+
+	private void sendNextFilePart(FileSender sender) {
+		byte[] bytes = sender.getNextFileBytes();
+		if (bytes == null) {
+			cancelFile(sender.getCode(), true);
+			return;
+		}
+		refreshFileLimits();
+		sendPacket(new PacketFilePartOfFile(sender.getCode(), bytes));
+	}
+
+	private void cancelFile(String code, boolean informPeer) {
+		FileReceiver receiver = filesReceiver.remove(code);
+		if (receiver != null) {
+			receiver.close();
+		}
+		FileSender sender = filesSending.remove(code);
+		refreshFileLimits();
+		if (informPeer) {
+			sendPacket(new PacketFileCancelSend(code));
+		}
+		if (sender != null) {
+			sender.onReject();
+		}
+	}
+
+	private void refreshFileLimits() {
+		maxPacketSizeSend = Math.max(defaultMaxPacketSizeSend, getMaxBytesSenderOnFiles() + 512);
+		maxPacketSizeReceive = Math.max(defaultMaxPacketSizeReceive, getMaxBytesReceiverOnFiles() + 512);
+	}
+
+	public File getFileReceiveDirectory() {
+		return new File("").getAbsoluteFile();
+	}
+
+	private void adaptFilePart(final FileSender sender, long elapsed) {
+		long target = sender.getBytesPerPacket();
+		if (elapsed > 0 && elapsed < maxTimePerPacketOnSendFiled && !lastPacketSendFileChangedByteAmount) {
+			target = (long) (target * ((double) maxTimePerPacketOnSendFiled / elapsed));
+		} else if (elapsed >= maxTimePerPacketOnSendFiled + 150) {
+			target = (long) (target * ((double) (maxTimePerPacketOnSendFiled + 150) / elapsed));
+		}
+		target = Math.max(1024, Math.min(FileSender.MAX_BYTES_PER_PACKET, target));
+		if (target == sender.getBytesPerPacket()) {
+			lastPacketSendFileChangedByteAmount = false;
+			sendNextFilePart(sender);
+			return;
+		}
+		final long requestedBytes = target;
+		lastPacketSendFileChangedByteAmount = true;
+		// El siguiente fragmento espera la confirmación del nuevo tamaño.
+		sendPacket(new PacketFileCanChangeBytesPerPacket(sender.getCode(), requestedBytes,
+				new AwaitAnswerCallback(this, PacketFileCanChangeBytesPerPacket.class) {
+			@Override
+			public void onAnswer(Packet packet) {
+				PacketFileCanChangeBytesPerPacket response = (PacketFileCanChangeBytesPerPacket) packet;
+				if (filesSending.get(sender.getCode()) == sender && sender.getCode().equals(response.getCode())
+						&& response.getBytes() == requestedBytes) {
+					sender.setBytesPerPacket(requestedBytes);
+					sendNextFilePart(sender);
+				} else {
+					cancelFile(sender.getCode(), true);
+				}
+			}
+			@Override
+			public void onTimeOut() {
+				cancelFile(sender.getCode(), true);
+			}
+		}));
+	}
+
+	private void reconnectClient() {
+		for (int attempt = 0; attempt < 3 && !disconnected; attempt++) {
+			AsynchronousSocketChannel channel = null;
+			try {
+				Thread.sleep(attempt * 3000L);
+				if (disconnected) {
+					return;
+				}
+				channel = AsynchronousSocketChannel.open();
+				channel.connect(new InetSocketAddress(ip, port)).get(5, TimeUnit.SECONDS);
+				synchronized (sendLock) {
+					if (disconnected) {
+						channel.close();
+						return;
+					}
+					connection = channel;
+					connectionCompleted = true;
+				}
+				PacketGlobalReconnect packet = new PacketGlobalReconnect(reconnectKey);
+				packet.setSentCallback(new PacketSentCallback() {
+					@Override
+					public void onSent(long milliseconds) {
+						reconnecting = false;
+						lastPinged = System.currentTimeMillis();
+						startRead();
+						onReconnect();
+						sendNextPacket();
+					}
+					@Override
+					public void onError(Exception exception) {
+						totalDisconnect();
+					}
+				});
+				send(packet);
+				return;
+			} catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				break;
+			} catch (Exception exception) {
+				if (channel != null) {
+					try {
+						channel.close();
+					} catch (IOException closeFailure) {
+						log("Error al cerrar un intento de conexión");
+					}
+				}
+			}
+		}
+		totalDisconnect();
+	}
+
+	private synchronized void clearFileTransfers() {
+		for (FileReceiver receiver : filesReceiver.values()) {
+			receiver.close();
+		}
+		filesReceiver.clear();
+		List<FileSender> senders = new ArrayList<FileSender>(filesSending.values());
+		filesSending.clear();
+		for (Packet packet : new ArrayList<Packet>(pendentingSendPacket.values())) {
+			if (packet instanceof PacketFileCanSent || packet instanceof PacketFilePartOfFile
+					|| packet instanceof PacketFilePartOfFileReceived || packet instanceof PacketFileSentRequest
+					|| packet instanceof PacketFileCancelSend || packet instanceof PacketFileCanChangeBytesPerPacket) {
+				failPacket(packet, new IOException("Transferencia interrumpida"));
+			}
+		}
+		refreshFileLimits();
+		for (FileSender sender : senders) {
+			try {
+				sender.onReject();
+			} catch (RuntimeException exception) {
+				log("Error al cancelar un archivo");
+			}
+		}
+	}
+
+	private synchronized void recordBytes(boolean sent, int count) {
+		checkNeedUpdateBytesPerSecond();
+		if (sent) {
+			newbytesPerSecondSent += count;
+			bytesSent += count;
+		} else {
+			newbytesPerSecondReceived += count;
+			bytesReceived += count;
+		}
 	}
 }

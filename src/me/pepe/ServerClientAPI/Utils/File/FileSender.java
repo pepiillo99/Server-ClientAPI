@@ -1,13 +1,14 @@
 package me.pepe.ServerClientAPI.Utils.File;
 
-import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.RandomAccessFile;
 import java.io.IOException;
 
 import me.pepe.ServerClientAPI.Utils.Utils;
 
 public abstract class FileSender {
+	public static final int MAX_BYTES_PER_PACKET = 16 * 1024 * 1024;
+	private int pendingBytes;
 	private String code;
 	private long fileLenght = 0;
 	private String filePath = "";
@@ -17,7 +18,7 @@ public abstract class FileSender {
 	private long lastInformed = 0;
 	private long lastSent = 0;
 	private long timeToInform = 0;
-	// hacer que al reconectar continue enviando paquetes (si el ultimo packet no lo recibio deberá volver atras en el read para enviar la parte no recibida)
+	// hacer que al reconectar continue enviando paquetes (si el ultimo packet no lo recibio deberÃ¡ volver atras en el read para enviar la parte no recibida)
 	public FileSender(String filePath) {
 		this("", new File(filePath), Utils.getFromSacledBytes("1MB"));
 	}
@@ -72,18 +73,20 @@ public abstract class FileSender {
 		return bytesPerPacket;
 	}
 	public void setBytesPerPacket(long bytesPerPacket) {
-		this.bytesPerPacket = bytesPerPacket;
+		if (bytesPerPacket > 0 && bytesPerPacket <= MAX_BYTES_PER_PACKET) {
+			this.bytesPerPacket = bytesPerPacket;
+		}
 	}
 	public byte[] getNextFileBytes() {
+		if (bytesPerPacket <= 0 || bytesPerPacket > MAX_BYTES_PER_PACKET || sent > fileLenght) {
+			return null;
+		}
 		byte[] bytes = new byte[(int) (fileLenght - sent < bytesPerPacket ? fileLenght - sent : bytesPerPacket)];
 		File file = new File(filePath);
-		try {
-			FileInputStream fis = new FileInputStream(file);
-			BufferedInputStream bis = new BufferedInputStream(fis);
-			//System.out.println(bytes.length + " - " + sent + " - " + (sent + bytes.length) + " - " + fileLenght);
-			bis.skip(sent);
-	        bis.read(bytes,0,bytes.length);
-	        bis.close();
+		try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
+			input.seek(sent);
+			input.readFully(bytes);
+			pendingBytes = bytes.length;
 	        return bytes;
 		} catch (IOException e) {
 			System.out.println("Error al encontrar el archivo que se esta enviando desde " + filePath);
@@ -91,6 +94,10 @@ public abstract class FileSender {
 		return null;
 	}
 	public long sent(long lenght) {
+		if (lenght <= 0 || lenght != pendingBytes || lenght > fileLenght - sent) {
+			return -1;
+		}
+		pendingBytes = 0;
 		long diff = System.currentTimeMillis() - lastSent;
 		sent += lenght;
 		if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
