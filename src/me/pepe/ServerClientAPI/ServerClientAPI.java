@@ -4,6 +4,8 @@ import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 
 import me.pepe.ServerClientAPI.Exceptions.ReadPacketException;
+import me.pepe.ServerClientAPI.Utils.Message.MessageFragmentPacket;
+import me.pepe.ServerClientAPI.Utils.Message.MessageFragmentAckPacket;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalAskNewConnection;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalDisconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalKick;
@@ -75,5 +77,9 @@ public class ServerClientAPI {
 		addPacket(new PacketObjectString());
 		addPacket(new PacketObjectInteger());
 		addPacket(new PacketObjectLong());
+
+        // Mensajes fragmentados disponibles para todos los consumidores de la biblioteca.
+        addPacket(new MessageFragmentPacket());
+        addPacket(new MessageFragmentAckPacket());
 	}
 }
