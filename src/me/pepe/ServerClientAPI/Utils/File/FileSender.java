@@ -3,6 +3,7 @@ package me.pepe.ServerClientAPI.Utils.File;
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 import me.pepe.ServerClientAPI.Utils.Utils;
 
@@ -30,9 +31,9 @@ public abstract class FileSender {
 	}
 	public FileSender(String code, File file, long bytesPerPacket) {
 		this.code = code;
-		this.startTime = System.currentTimeMillis();
+		this.startTime = System.nanoTime();
 		this.bytesPerPacket = bytesPerPacket;
-		this.lastSent = System.currentTimeMillis();
+		this.lastSent = System.nanoTime();
 		if (file != null && file.exists() && file.isFile()) {
 			this.fileLenght = file.length();
 			this.filePath = file.getPath();
@@ -98,15 +99,15 @@ public abstract class FileSender {
 			return -1;
 		}
 		pendingBytes = 0;
-		long diff = System.currentTimeMillis() - lastSent;
+		long diff = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - lastSent);
 		sent += lenght;
-		if ((lastInformed + timeToInform) - System.currentTimeMillis() < 0) {
-			lastInformed = System.currentTimeMillis();
+		if (lastInformed == 0 || System.nanoTime() - lastInformed >= TimeUnit.MILLISECONDS.toNanos(timeToInform)) {
+			lastInformed = System.nanoTime();
 			System.out.println(Utils.getBytesScaled(sent) + "(" + sent + ") enviado de " + Utils.getBytesScaled(fileLenght) + "(" + fileLenght + ") - " + getPorcentSent() + "% - " + code + " " + diff + "ms de diferencia entre paquetes");
 		}
-		lastSent = System.currentTimeMillis();
+		lastSent = System.nanoTime();
 		if (isFinished()) {
-			finishTime = System.currentTimeMillis();
+			finishTime = System.nanoTime();
 		}
 		return diff;
 	}
@@ -115,13 +116,13 @@ public abstract class FileSender {
 	}
 	public long getSentTime() {
 		if (isFinished()) {
-			return finishTime - startTime;
+			return TimeUnit.NANOSECONDS.toMillis(finishTime - startTime);
 		} else {
 			return -1;
 		}
 	}
 	public int getPorcentSent() {
-		return (int) (((double) sent / (double) fileLenght) * 100);
+		return fileLenght == 0 ? 100 : (int) (((double) sent / (double) fileLenght) * 100);
 	}
 	public abstract void onReject();
 	public abstract void onStart();

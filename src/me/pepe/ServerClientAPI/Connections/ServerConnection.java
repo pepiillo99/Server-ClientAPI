@@ -6,6 +6,7 @@ import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.CompletionHandler;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import me.pepe.ServerClientAPI.Packet;
 import me.pepe.ServerClientAPI.ServerClientAPI;
@@ -13,13 +14,25 @@ import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalDisconnect;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalNewConnection;
 import me.pepe.ServerClientAPI.GlobalPackets.PacketGlobalReconnect;
 
-public abstract class ServerConnection {
+public abstract class ServerConnection implements AutoCloseable {
 	private int port;
 	private AsynchronousServerSocketChannel serverSocket;
-	public ServerConnection(ServerClientAPI serverAPI, int port) {
-		this.port = port;
-		try {
-			serverSocket = AsynchronousServerSocketChannel.open().bind(new InetSocketAddress(port));
+    private final AtomicBoolean started = new AtomicBoolean();
+    private final ServerClientAPI serverAPI;
+    private final InetSocketAddress bindAddress;
+	public ServerConnection(ServerClientAPI serverAPI, int port) { this(serverAPI,port,true); }
+    protected ServerConnection(ServerClientAPI serverAPI,int port,boolean autoStart) {
+        this(serverAPI,new InetSocketAddress(port),autoStart);
+    }
+    protected ServerConnection(ServerClientAPI serverAPI,InetSocketAddress address,boolean autoStart) {
+        this.serverAPI=serverAPI; this.port=address.getPort(); this.bindAddress=address;
+        if(autoStart) start();
+    }
+    public final void start() {
+        if(!started.compareAndSet(false,true)) return;
+        try {
+			serverSocket = AsynchronousServerSocketChannel.open().bind(bindAddress);
+            port=((InetSocketAddress)serverSocket.getLocalAddress()).getPort();
 			onStart();
 			serverSocket.accept(serverSocket, new CompletionHandler<AsynchronousSocketChannel, AsynchronousServerSocketChannel>() {
 				@Override
@@ -80,7 +93,7 @@ public abstract class ServerConnection {
 	}
 	public void stop() {
 		try {
-			if (serverSocket.isOpen()) {
+			if (serverSocket != null && serverSocket.isOpen()) {
 				serverSocket.close();
 				onStop();
 			}
@@ -88,4 +101,5 @@ public abstract class ServerConnection {
 			e.printStackTrace();
 		}
 	}
+    @Override public final void close() { stop(); }
 }

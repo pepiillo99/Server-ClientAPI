@@ -3,6 +3,7 @@ package me.pepe.ServerClientAPI.Utils.File;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,7 +18,7 @@ public class FileReceiver implements AutoCloseable {
 	private BufferedOutputStream output;
 	private long received;
 	private long bytesPerPacket;
-	private final long startTime = System.currentTimeMillis();
+	private final long startTime = System.nanoTime();
 	private long finishTime;
 	private boolean finished;
 	private boolean closed;
@@ -106,7 +107,7 @@ public class FileReceiver implements AutoCloseable {
 		return finished;
 	}
 	public synchronized long getReceivedTime() {
-		return finished ? finishTime - startTime : -1;
+		return finished ? TimeUnit.NANOSECONDS.toMillis(finishTime - startTime) : -1;
 	}
 	public boolean checkFileExists() {
 		return target != null && Files.exists(target);
@@ -144,7 +145,7 @@ public class FileReceiver implements AutoCloseable {
 			Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
 		}
 		temporary = null;
-		finishTime = System.currentTimeMillis();
+		finishTime = System.nanoTime();
 		finished = true;
 		closed = true;
 	}

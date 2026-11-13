@@ -52,6 +52,7 @@ public abstract class Packet {
 	protected void setAwaitAnswerCallback(AwaitAnswerCallback awaitAnswerCallback) {
 		this.awaitAnswerCallback = awaitAnswerCallback;
 	}
+    public final void expectResponse(AwaitAnswerCallback callback) { setAwaitAnswerCallback(callback); }
 	public void answer(ClientConnection connection, Packet packet) {
 		if (hasPendentingAnswer()) {
 			packet.setPendentingAnswer(pendentingAnswer);

@@ -1,6 +1,7 @@
 package me.pepe.ServerClientAPI.Utils;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeUnit;
 
 import me.pepe.ServerClientAPI.Packet;
 import me.pepe.ServerClientAPI.Connections.ClientConnection;
@@ -32,8 +33,9 @@ public abstract class AwaitAnswerCallback {
 		return timeout;
 	}
 	public boolean isTimeOut() {
-		return answerTime != 0 && !completed.get() && System.currentTimeMillis() - answerTime >= timeout;
+		return answerTime != 0 && !completed.get() && System.nanoTime() - answerTime >= TimeUnit.MILLISECONDS.toNanos(timeout);
 	}
+    public boolean isWaiting() { return answerTime != 0 && !completed.get(); }
 	public void setExpectedPacket(Class<? extends Packet> expectedPacketClass) {
 		this.expectedPacketClass = expectedPacketClass;
 	}
@@ -48,7 +50,7 @@ public abstract class AwaitAnswerCallback {
 	}
 
 	public void startWaiting() {
-		answerTime = System.currentTimeMillis();
+		answerTime = System.nanoTime();
 	}
 
 	public void complete(Packet packet) {
