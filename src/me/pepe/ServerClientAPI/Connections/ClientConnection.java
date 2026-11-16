@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
 
 import javax.sound.sampled.LineUnavailableException;
+import javax.net.ssl.SSLContext;
 
 import me.pepe.ServerClientAPI.Packet;
 import me.pepe.ServerClientAPI.ServerClientAPI;
@@ -71,6 +72,7 @@ import me.pepe.ServerClientAPI.VoiceChat.MicrophoneThread;
 
 public abstract class ClientConnection implements AutoCloseable {
 	private ServerClientAPI packetManager;
+    private SSLContext tlsContext;
 	private volatile AsynchronousSocketChannel connection;
 	private String ip;
 	private int port;
@@ -100,6 +102,9 @@ public abstract class ClientConnection implements AutoCloseable {
 	public boolean byteDebug = false;
 	private volatile Packet sendingPacket = null;
 	private volatile boolean reconnecting = false;
+    private volatile boolean awaitingReconnectConfirmation;
+    private int reconnectAttemptNumber;
+    private ScheduledFuture<?> reconnectConfirmationTimeout;
 	private String reconnectKey = "";
 	private volatile long timeOut = 5000;
 	private volatile long lastPinged = 0;
@@ -193,7 +198,7 @@ public abstract class ClientConnection implements AutoCloseable {
     }
     private void openInitialConnection() {
         try {
-            final AsynchronousSocketChannel channel = AsynchronousSocketChannel.open();
+            final AsynchronousSocketChannel channel = openTransport();
             connection = channel;
             channel.connect(new InetSocketAddress(ip,port),channel,new CompletionHandler<Void,AsynchronousSocketChannel>() {
                 @Override public void completed(Void result,AsynchronousSocketChannel attachment) {
@@ -459,7 +464,8 @@ public abstract class ClientConnection implements AutoCloseable {
 		if (channel == connection && !disconnected) {
 			Exception exception = failure instanceof Exception ? (Exception) failure : new IOException("Error de escritura", failure);
 			failPacket(packet, exception);
-			dropAndReconnect();
+            if (awaitingReconnectConfirmation) retryReconnectConfirmation(channel, reconnectAttemptNumber);
+            else dropAndReconnect();
 		}
 	}
 	private void failPacket(Packet packet, Exception exception) {
@@ -583,10 +589,11 @@ public abstract class ClientConnection implements AutoCloseable {
 		}
 	}
 	private void readFailed(AsynchronousSocketChannel channel) {
-		if (channel == connection && !disconnected) {
-			dropAndReconnect();
-		}
-	}
+        if (channel == connection && !disconnected) {
+            if (awaitingReconnectConfirmation) retryReconnectConfirmation(channel, reconnectAttemptNumber);
+            else dropAndReconnect();
+        }
+    }
 
 	private void read(ByteBuffer bufPacket) {
 		ByteArrayInputStream input = new ByteArrayInputStream(bufPacket.array());
@@ -616,6 +623,7 @@ public abstract class ClientConnection implements AutoCloseable {
 				System.err.println(exception);
 			}
 			if (packet != null) {
+                if (!canReceivePacket(packet)) { totalDisconnect(); return; }
 				packetReceived++;
 				if (debugMode) {
 					System.out.println("Packet recibido: " + packet.getClass().getName());
@@ -637,11 +645,15 @@ public abstract class ClientConnection implements AutoCloseable {
 							}
 						} else if (packet instanceof PacketGlobalReconnectDefineKey) {
 							PacketGlobalReconnectDefineKey defineKey = (PacketGlobalReconnectDefineKey) packet;
-							reconnectKey = defineKey.getKey();
-							connected = true;
-                            changeState(ConnectionState.CONNECTED);
-                            executeCallback(new Runnable() { @Override public void run() { onConnect(); } });
-						} else if (packet instanceof PacketGlobalDisconnect) {
+							boolean resuming = awaitingReconnectConfirmation;
+                            reconnectKey = defineKey.getKey();
+                            connected = true;
+                            if (resuming) finishReconnect();
+                            else {
+                                changeState(ConnectionState.CONNECTED);
+                                executeCallback(new Runnable() { @Override public void run() { onConnect(); } });
+                            }
+                        } else if (packet instanceof PacketGlobalDisconnect) {
 							System.out.println("Disconnected by " + (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER ? "server" : "client") );
 							if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
 								canReconnect = false;
@@ -747,28 +759,40 @@ public abstract class ClientConnection implements AutoCloseable {
 			return result;
 		}
 	}
-	public synchronized void reconnect(AsynchronousSocketChannel channel) {
-		synchronized (sendLock) {
-			if (disconnected) {
-				try {
-					channel.close();
-				} catch (IOException exception) {
-					log("Error al cerrar una reconexión");
-				}
-				return;
-			}
-			connection = channel;
-			connectionCompleted = true;
-			reconnecting = false;
-			sendingPacket = null;
-			lastPinged = System.nanoTime();
-		}
-		if (reconnectTask != null) reconnectTask.cancel(false);
-		changeState(ConnectionState.CONNECTED);
+    public synchronized void reconnect(AsynchronousSocketChannel channel) {
+        synchronized (sendLock) {
+            if (disconnected) { closeChannel(channel); return; }
+            connection = channel;
+            connectionCompleted = true;
+            reconnecting = true;
+            sendingPacket = null;
+            lastPinged = System.nanoTime();
+        }
+        if (reconnectTask != null) reconnectTask.cancel(false);
+        if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
+            // La confirmación precede a los mensajes de aplicación que quedaron en cola.
+            PacketGlobalReconnectDefineKey confirmation = new PacketGlobalReconnectDefineKey(reconnectKey);
+            confirmation.setSentCallback(new PacketSentCallback() {
+                @Override public void onSent(long milliseconds) { finishReconnect(); }
+                @Override public void onError(Exception failure) { totalDisconnect(); }
+            });
+            try { if (!send(confirmation)) totalDisconnect(); }
+            catch (Exception failure) { totalDisconnect(); }
+        } else finishReconnect();
+    }
+    private void finishReconnect() {
+        synchronized (sendLock) {
+            if (disconnected) return;
+            reconnecting = false;
+            awaitingReconnectConfirmation = false;
+            lastPinged = System.nanoTime();
+        }
+        if (reconnectConfirmationTimeout != null) reconnectConfirmationTimeout.cancel(false);
+        changeState(ConnectionState.CONNECTED);
         startRead();
-		executeCallback(new Runnable() { @Override public void run() { onReconnect(); } });
-		sendNextPacket();
-	}
+        executeCallback(new Runnable() { @Override public void run() { onReconnect(); } });
+        sendNextPacket();
+    }
 	public synchronized void dropAndReconnect() {
         Packet interrupted;
 		synchronized (sendLock) {
@@ -889,6 +913,7 @@ public abstract class ClientConnection implements AutoCloseable {
 		audioChannels.clear();
 		ConnectionRuntime.untrack(this);
         if (closingTask != null) closingTask.cancel(false);
+        if (reconnectConfirmationTimeout != null) reconnectConfirmationTimeout.cancel(false);
 		if (reconnectTask != null) reconnectTask.cancel(false);
 		if (notify) {
 			try {
@@ -1219,7 +1244,7 @@ public abstract class ClientConnection implements AutoCloseable {
     private void reconnectAttempt(final int attempt) {
         if (disconnected) return;
         try {
-            final AsynchronousSocketChannel channel = AsynchronousSocketChannel.open();
+            final AsynchronousSocketChannel channel = openTransport();
             final AtomicBoolean resolved = new AtomicBoolean();
             final ScheduledFuture<?> timeout = ConnectionRuntime.schedule(new Runnable() {
                 @Override public void run() {
@@ -1231,17 +1256,22 @@ public abstract class ClientConnection implements AutoCloseable {
                     if (!resolved.compareAndSet(false,true)) { closeChannel(channel); return; }
                     timeout.cancel(false);
                     if (disconnected) { closeChannel(channel); return; }
-                    synchronized (sendLock) { connection = channel; connectionCompleted = true; }
+                    synchronized (sendLock) {
+                        connection = channel; connectionCompleted = true;
+                        awaitingReconnectConfirmation = true;
+                        reconnectAttemptNumber = attempt;
+                    }
+                    reconnectConfirmationTimeout = ConnectionRuntime.schedule(new Runnable() {
+                        @Override public void run() { retryReconnectConfirmation(channel, attempt); }
+                    }, 5000);
                     PacketGlobalReconnect packet = new PacketGlobalReconnect(reconnectKey);
                     packet.setSentCallback(new PacketSentCallback() {
                         @Override public void onSent(long milliseconds) {
-                            reconnecting = false; lastPinged = System.nanoTime();
-                            changeState(ConnectionState.CONNECTED);
-                            startRead(); executeCallback(new Runnable() { @Override public void run() { onReconnect(); } }); sendNextPacket();
+                            startRead();
                         }
-                        @Override public void onError(Exception failure) { totalDisconnect(); }
+                        @Override public void onError(Exception failure) { retryReconnectConfirmation(channel, attempt); }
                     });
-                    try { send(packet); } catch (Exception failure) { totalDisconnect(); }
+                    try { if (!send(packet)) retryReconnectConfirmation(channel, attempt); } catch (Exception failure) { retryReconnectConfirmation(channel, attempt); }
                 }
                 @Override public void failed(Throwable error,AsynchronousSocketChannel attachment) {
                     if (resolved.compareAndSet(false,true)) {
@@ -1430,5 +1460,47 @@ public abstract class ClientConnection implements AutoCloseable {
     private void reportCallbackFailure(Exception failure) {
         try { onCallbackError(failure); }
         catch(RuntimeException reportingFailure) { System.err.println("No se pudo notificar un error de callback"); }
+    }
+
+    /** Configurar antes de connect. Una conexión TLS nunca vuelve a texto plano al fallar. */
+    public final void enableTls(SSLContext context) {
+        if (started.get() || context == null) throw new IllegalStateException("TLS debe configurarse antes de conectar.");
+        tlsContext = context;
+    }
+    private AsynchronousSocketChannel openTransport() throws IOException {
+        return tlsContext == null ? AsynchronousSocketChannel.open() : TlsSocketChannel.open(tlsContext, ip, port);
+    }
+    public final boolean isTlsProtected() {
+        return connection instanceof TlsSocketChannel && ((TlsSocketChannel) connection).isTlsReady();
+    }
+    /** Se consulta antes de callbacks, archivos, voz y operaciones de aplicación. */
+    protected boolean canReceivePacket(Packet packet) {
+        if (awaitingReconnectConfirmation && !(packet instanceof PacketGlobalReconnectDefineKey)
+                && !(packet instanceof PacketGlobalDisconnect) && !(packet instanceof PacketGlobalPing)
+                && !(packet instanceof PacketGlobalAskNewConnection)) return false;
+        if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT && packet instanceof PacketGlobalReconnectDefineKey) return false;
+        return true;
+    }
+
+    /** Reanuda exclusivamente una sesión interrumpida y consume su clave anterior. */
+    public final synchronized boolean reconnectIfValid(AsynchronousSocketChannel channel, String key) {
+        if (disconnected || !reconnecting || !checkReconnectKey(key) || clientConnectionType != ClientConnectionType.SERVER_TO_CLIENT) return false;
+        if (connection instanceof TlsSocketChannel && (!(channel instanceof TlsSocketChannel) || !((TlsSocketChannel) channel).isTlsReady())) return false;
+        reconnectKey = new BigInteger(256, secureRandom).toString(32);
+        reconnect(channel);
+        return true;
+    }
+
+    private void retryReconnectConfirmation(AsynchronousSocketChannel channel, int attempt) {
+        synchronized (sendLock) {
+            if (disconnected || channel != connection || !awaitingReconnectConfirmation) return;
+            awaitingReconnectConfirmation = false;
+            connectionCompleted = false;
+            reading = false;
+            sendingPacket = null;
+        }
+        if (reconnectConfirmationTimeout != null) reconnectConfirmationTimeout.cancel(false);
+        closeChannel(channel);
+        scheduleReconnect(attempt + 1);
     }
 }
