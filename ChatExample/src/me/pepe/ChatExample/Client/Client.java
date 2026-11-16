@@ -16,7 +16,7 @@ public class Client extends ClientConnection {
 	}
 	@Override
 	public void onConnect() {
-		System.out.println("&aConexión establecida correctamente, introduzca el nombre que desea tener en el chat");
+		System.out.println("&aConexiÃ³n establecida correctamente, introduzca el nombre que desea tener en el chat");
 	}
 	@Override
 	public void onFailedConnect() {
@@ -39,11 +39,11 @@ public class Client extends ClientConnection {
 	}
 	@Override
 	public void onDropCanReconnect() {
-		System.out.println("&cConexión perdida, intentando reconectar...");
+		System.out.println("&cConexiÃ³n perdida, intentando reconectar...");
 	}
 	@Override
 	public void onReconnect() {
-		System.out.println("&a¡Reconectado exitosamente!");
+		System.out.println("&aÂ¡Reconectado exitosamente!");
 	}
 	@Override
 	public void onDisconnect() {

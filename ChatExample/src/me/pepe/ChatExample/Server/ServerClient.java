@@ -31,7 +31,7 @@ public class ServerClient extends ClientConnection {
 			boolean request = false;
 			if (name == null || name.isEmpty()) {
 				if (!ChatExampleServer.getInstance().getServer().hasUser(pdn.getName())) {
-					ChatExampleServer.getInstance().getServer().broadcastMessage("a", pdn.getName() + " se unió al chat");
+					ChatExampleServer.getInstance().getServer().broadcastMessage("a", pdn.getName() + " se uniÃ³ al chat");
 					name = pdn.getName();
 					request = true;
 					color = Utils.getRandomColor();
@@ -46,7 +46,7 @@ public class ServerClient extends ClientConnection {
 					if (sc != this) {
 						sc.sendPacket(new PacketReceiveChatMessage(color, name, scm.getMessage()));
 					} else {
-						sc.sendPacket(new PacketReceiveChatMessage(color, "Tú", scm.getMessage()));
+						sc.sendPacket(new PacketReceiveChatMessage(color, "TÃº", scm.getMessage()));
 					}
 				}
 			}
@@ -54,7 +54,7 @@ public class ServerClient extends ClientConnection {
 	}
 	@Override
 	public void onDropCanReconnect() {
-		System.out.println("&cConexión perdida con " + name);
+		System.out.println("&cConexiÃ³n perdida con " + name);
 	}
 	@Override
 	public void onReconnect() {
@@ -64,7 +64,7 @@ public class ServerClient extends ClientConnection {
 	public void onDisconnect() {
 		System.out.println("&cCliente " + name + " desconectado");
 		if (name != null && !name.isEmpty()) {
-			ChatExampleServer.getInstance().getServer().broadcastMessage("c", name + " salió del chat");
+			ChatExampleServer.getInstance().getServer().broadcastMessage("c", name + " saliÃ³ del chat");
 		}
 	}
 	public int getID() {

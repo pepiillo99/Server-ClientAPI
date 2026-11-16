@@ -46,7 +46,7 @@ public class ChatExampleServer {
 				}
 			}			
 		};
-		new Command("drop", console, "Cancela la conexiÛn de un cliente (se puede volver a conectar)") {
+		new Command("drop", console, "Cancela la conexi√≥n de un cliente (se puede volver a conectar)") {
 			@Override
 			public void execute(String[] args) {
 				if (args.length == 1) {
@@ -56,10 +56,10 @@ public class ChatExampleServer {
 						if (sc != null) {
 							sc.dropAndReconnect();
 						} else {
-							System.out.println("El usuario con la ID " + userID + " no est· conectado, usa 'list' para comprobar los usuarios conectados");
+							System.out.println("El usuario con la ID " + userID + " no est√° conectado, usa 'list' para comprobar los usuarios conectados");
 						}
 					} catch (NumberFormatException ex) {
-						System.out.println(args[0] + " no es un numero v·lido");
+						System.out.println(args[0] + " no es un numero v√°lido");
 					}
 				} else {
 					System.out.println("Uso incorrecto, usa 'drop <userID>'");
@@ -76,10 +76,10 @@ public class ChatExampleServer {
 						if (sc != null) {
 							sc.disconnect();
 						} else {
-							System.out.println("El usuario con la ID " + userID + " no est· conectado, usa 'list' para comprobar los usuarios conectados");
+							System.out.println("El usuario con la ID " + userID + " no est√° conectado, usa 'list' para comprobar los usuarios conectados");
 						}
 					} catch (NumberFormatException ex) {
-						System.out.println(args[0] + " no es un numero v·lido");
+						System.out.println(args[0] + " no es un numero v√°lido");
 					}
 				} else {
 					System.out.println("Uso incorrecto, usa 'drop <userID>'");

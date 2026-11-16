@@ -34,9 +34,9 @@ public class ChatExampleClient {
 				} else if (client != null && client.isConnected()) {
 					if (client.getName() == null || client.getName().isEmpty()) {
 						if (cmd.contains(" ")) {
-							System.out.println("&cEl nombre no puede contener espacios, escribe denuevo un nombre v·lido");
+							System.out.println("&cEl nombre no puede contener espacios, escribe denuevo un nombre v√°lido");
 						} else if (cmd.length() < 3 || cmd.length() > 10) {
-							System.out.println("&cEl nombre no puede tener menos de 3 caracteres ni mas de 10, escribe denuevo un nombre v·lido");
+							System.out.println("&cEl nombre no puede tener menos de 3 caracteres ni mas de 10, escribe denuevo un nombre v√°lido");
 						} else {
 							client.setName(cmd);
 						}
@@ -44,7 +44,7 @@ public class ChatExampleClient {
 						client.sendPacket(new PacketSendChatMessage(cmd));
 					}
 				} else {
-					System.out.println("&c°Espera que se realice la conexiÛn!");
+					System.out.println("&c¬°Espera que se realice la conexi√≥n!");
 				}
 			}
 		});
