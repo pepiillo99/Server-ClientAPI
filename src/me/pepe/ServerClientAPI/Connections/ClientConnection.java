@@ -142,6 +142,7 @@ public abstract class ClientConnection implements AutoCloseable {
 	private HashMap<Integer, AudioChannel> audioChannels = new HashMap<Integer, AudioChannel>();
 	//
 	private final AtomicInteger answerCounter = new AtomicInteger(1);
+    private final AtomicBoolean transportFailureReported = new AtomicBoolean();
 	private final Object sendLock = new Object();
 	private volatile boolean disconnected;
 	private static final SecureRandom secureRandom = new SecureRandom();
@@ -357,6 +358,7 @@ public abstract class ClientConnection implements AutoCloseable {
 				return;
 			}
 			reading = true;
+            transportFailureReported.set(false);
 		}
 		readNextPacket();
 	}
@@ -462,8 +464,10 @@ public abstract class ClientConnection implements AutoCloseable {
 	}
 	private void writeFailed(AsynchronousSocketChannel channel, Packet packet, Throwable failure) {
 		if (channel == connection && !disconnected) {
+            if (disconnectRequested.get()) { totalDisconnect(); return; }
 			Exception exception = failure instanceof Exception ? (Exception) failure : new IOException("Error de escritura", failure);
-			failPacket(packet, exception);
+			reportTransportFailure("write", exception);
+            failPacket(packet, exception);
             if (awaitingReconnectConfirmation) retryReconnectConfirmation(channel, reconnectAttemptNumber);
             else dropAndReconnect();
 		}
@@ -489,8 +493,10 @@ public abstract class ClientConnection implements AutoCloseable {
 				final PacketSentCallback sentCallback = packet.getSentCallback();
                 executeCallback(new Runnable() { @Override public void run() { sentCallback.fail(exception); } });
 			}
-			executeCallback(new Runnable() { @Override public void run() { onErrorSend(); } });
-			log(exception.getMessage());
+			if (!disconnectRequested.get()) {
+                executeCallback(new Runnable() { @Override public void run() { onErrorSend(); } });
+                log(exception.getMessage());
+            }
 		} catch (RuntimeException callbackFailure) {
 			log("Error en el callback de envío");
 		}
@@ -543,7 +549,7 @@ public abstract class ClientConnection implements AutoCloseable {
 						}
 						@Override
 						public void failed(Throwable exception, AsynchronousSocketChannel socket) {
-							readFailed(channel);
+							readFailed(channel, exception);
 						}
 					});
 				} catch (ReadPacketException | RuntimeException exception) {
@@ -552,7 +558,7 @@ public abstract class ClientConnection implements AutoCloseable {
 			}
 			@Override
 			public void failed(Throwable exception, AsynchronousSocketChannel attachment) {
-				readFailed(channel);
+				readFailed(channel, exception);
 			}
 		});
 	}
@@ -588,8 +594,10 @@ public abstract class ClientConnection implements AutoCloseable {
 			callback.failed(exception, channel);
 		}
 	}
-	private void readFailed(AsynchronousSocketChannel channel) {
+	private void readFailed(AsynchronousSocketChannel channel, Throwable failure) {
         if (channel == connection && !disconnected) {
+            if (disconnectRequested.get()) { totalDisconnect(); return; }
+            reportTransportFailure("read", failure);
             if (awaitingReconnectConfirmation) retryReconnectConfirmation(channel, reconnectAttemptNumber);
             else dropAndReconnect();
         }
@@ -654,6 +662,9 @@ public abstract class ClientConnection implements AutoCloseable {
                                 executeCallback(new Runnable() { @Override public void run() { onConnect(); } });
                             }
                         } else if (packet instanceof PacketGlobalDisconnect) {
+                            // El otro extremo ha pedido cerrar: no iniciar nuevas lecturas ni reconexiones.
+                            disconnectRequested.set(true);
+                            stopRead();
 							System.out.println("Disconnected by " + (clientConnectionType == ClientConnectionType.CLIENT_TO_SERVER ? "server" : "client") );
 							if (clientConnectionType == ClientConnectionType.SERVER_TO_CLIENT) {
 								canReconnect = false;
@@ -1454,6 +1465,18 @@ public abstract class ClientConnection implements AutoCloseable {
         if(!initialFailure.compareAndSet(false,true)) return;
         totalDisconnect(false);
         executeCallback(new Runnable() { @Override public void run() { onFailedConnect(); } });
+    }
+
+    /** Causa original del primer fallo de transporte por sesión, sin contenido de paquetes. */
+    public void onTransportError(String operation, Exception failure) {
+        log("Transporte " + operation + ": " + failure.getClass().getSimpleName() + ": " + failure.getMessage());
+    }
+    private void reportTransportFailure(final String operation, Throwable failure) {
+        if (!transportFailureReported.compareAndSet(false, true)) return;
+        final Exception cause = failure instanceof Exception ? (Exception) failure : new IOException("Fallo de transporte", failure);
+        executeCallback(new Runnable() {
+            @Override public void run() { onTransportError(operation, cause); }
+        });
     }
 
     public void onCallbackError(Exception failure) { log("Error en callback: " + failure.getClass().getSimpleName()); }

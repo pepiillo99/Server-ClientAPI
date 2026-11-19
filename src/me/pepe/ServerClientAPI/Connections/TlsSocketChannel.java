@@ -48,6 +48,7 @@ public final class TlsSocketChannel extends AsynchronousSocketChannel {
     private Operation<Integer> read, write;
     private Operation<Void> connect;
     private int written = -1;
+    private Throwable terminalFailure;
     private ScheduledFuture<?> handshakeTimeout;
 
     private TlsSocketChannel(AsynchronousSocketChannel raw, SSLEngine engine) {
@@ -168,8 +169,8 @@ public final class TlsSocketChannel extends AsynchronousSocketChannel {
 
     private void drive() throws IOException {
         if (closed) {
-            if (read != null) { complete(read, null, new ClosedChannelException()); read = null; }
-            if (write != null) { complete(write, null, new ClosedChannelException()); write = null; }
+            if (read != null) { complete(read, null, terminalFailure == null ? new ClosedChannelException() : terminalFailure); read = null; }
+            if (write != null) { complete(write, null, terminalFailure == null ? new ClosedChannelException() : terminalFailure); write = null; }
             return;
         }
         for (int step = 0; step < 64; step++) {
@@ -203,7 +204,8 @@ public final class TlsSocketChannel extends AsynchronousSocketChannel {
                 if (read != null && plaintext.position() == 0) { complete(read, -1, null); read = null; }
                 return;
             }
-            if (!reading && encryptedInput.position() > 0 && plaintext.hasRemaining()) {
+            // No descifrar datos sin una lectura pendiente: aplicar contrapresión.
+            if (read != null && !reading && encryptedInput.position() > 0 && plaintext.hasRemaining()) {
                 if (unwrap()) continue;
             }
             if (write != null) { wrap(write.buffer, true); continue; }
@@ -311,6 +313,7 @@ public final class TlsSocketChannel extends AsynchronousSocketChannel {
     }
     private void failLocked(Throwable failure) {
         if (!closed) {
+            terminalFailure = failure;
             closed = true;
             if (handshakeTimeout != null) handshakeTimeout.cancel(false);
             try { raw.close(); } catch (IOException ignored) {}
